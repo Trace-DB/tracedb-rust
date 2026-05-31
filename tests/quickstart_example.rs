@@ -15,6 +15,10 @@ fn quickstart_example_lock() -> MutexGuard<'static, ()> {
         .expect("quickstart example lock poisoned")
 }
 
+fn sdk_package_root() -> &'static Path {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+}
+
 #[test]
 fn sdk_quickstart_example_runs_against_real_http_server() {
     let _guard = quickstart_example_lock();
@@ -23,18 +27,12 @@ fn sdk_quickstart_example_runs_against_real_http_server() {
     let admin_dir = temp.path().join("sdk-admin");
     let url = start_quickstart_test_server(data_dir);
 
-    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("workspace root");
     let output = Command::new(env!("CARGO"))
-        .current_dir(workspace_root)
+        .current_dir(sdk_package_root())
         .env_remove("TRACEDB_IDEMPOTENCY_RETRIES")
         .args([
             "run",
             "-q",
-            "-p",
-            "tracedb-sdk",
             "--example",
             "quickstart",
             "--",
@@ -135,19 +133,13 @@ fn sdk_quickstart_example_skips_admin_without_admin_dir() {
     let data_dir = temp.path().join("engine");
     let url = start_quickstart_test_server(data_dir);
 
-    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("workspace root");
     let output = Command::new(env!("CARGO"))
-        .current_dir(workspace_root)
+        .current_dir(sdk_package_root())
         .env_remove("TRACEDB_ADMIN_DIR")
         .env_remove("TRACEDB_IDEMPOTENCY_RETRIES")
         .args([
             "run",
             "-q",
-            "-p",
-            "tracedb-sdk",
             "--example",
             "quickstart",
             "--",
@@ -227,19 +219,13 @@ fn sdk_quickstart_accepts_idempotency_retries_from_env() {
     let data_dir = temp.path().join("engine");
     let url = start_quickstart_test_server(data_dir);
 
-    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("workspace root");
     let output = Command::new(env!("CARGO"))
-        .current_dir(workspace_root)
+        .current_dir(sdk_package_root())
         .env_remove("TRACEDB_ADMIN_DIR")
         .env("TRACEDB_IDEMPOTENCY_RETRIES", "1")
         .args([
             "run",
             "-q",
-            "-p",
-            "tracedb-sdk",
             "--example",
             "quickstart",
             "--",
@@ -345,18 +331,12 @@ fn quickstart_failure_summary(output: &std::process::Output) -> Value {
 #[test]
 fn sdk_quickstart_rejects_relative_admin_dir_before_http_request() {
     let _guard = quickstart_example_lock();
-    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("workspace root");
     let output = Command::new(env!("CARGO"))
-        .current_dir(workspace_root)
+        .current_dir(sdk_package_root())
         .env_remove("TRACEDB_IDEMPOTENCY_RETRIES")
         .args([
             "run",
             "-q",
-            "-p",
-            "tracedb-sdk",
             "--example",
             "quickstart",
             "--",
@@ -390,18 +370,12 @@ fn sdk_quickstart_rejects_relative_admin_dir_before_http_request() {
 #[test]
 fn sdk_quickstart_rejects_invalid_url_with_parseable_summary() {
     let _guard = quickstart_example_lock();
-    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("workspace root");
     let output = Command::new(env!("CARGO"))
-        .current_dir(workspace_root)
+        .current_dir(sdk_package_root())
         .env_remove("TRACEDB_IDEMPOTENCY_RETRIES")
         .args([
             "run",
             "-q",
-            "-p",
-            "tracedb-sdk",
             "--example",
             "quickstart",
             "--",
@@ -432,18 +406,12 @@ fn sdk_quickstart_rejects_invalid_url_with_parseable_summary() {
 #[test]
 fn sdk_quickstart_rejects_invalid_idempotency_retries_before_http_request() {
     let _guard = quickstart_example_lock();
-    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("workspace root");
     let output = Command::new(env!("CARGO"))
-        .current_dir(workspace_root)
+        .current_dir(sdk_package_root())
         .env_remove("TRACEDB_IDEMPOTENCY_RETRIES")
         .args([
             "run",
             "-q",
-            "-p",
-            "tracedb-sdk",
             "--example",
             "quickstart",
             "--",

@@ -1,18 +1,18 @@
 [package]
 name = "tracedb-sdk"
-edition.workspace = true
-license.workspace = true
-version.workspace = true
+edition = "2021"
+license = "Apache-2.0"
+version = "0.1.0"
 
 [dependencies]
-serde.workspace = true
-serde_json.workspace = true
-reqwest.workspace = true
-tokio.workspace = true
-tracedb-features = { path = "../tracedb-features" }
-tracedb-query = { path = "../tracedb-query" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+tokio = { version = "1.48", features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
+tracedb-features = { path = "../tracedb/crates/tracedb-features" }
+tracedb-query = { path = "../tracedb/crates/tracedb-query" }
 
 [dev-dependencies]
-tempfile.workspace = true
-tracedb-query = { path = "../tracedb-query" }
-tracedb-server = { path = "../tracedb-server" }
+tempfile = "3.10"
+tracedb-query = { path = "../tracedb/crates/tracedb-query" }
+tracedb-server = { path = "../tracedb/crates/tracedb-server" }
