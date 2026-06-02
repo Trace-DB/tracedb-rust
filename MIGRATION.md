@@ -16,15 +16,21 @@ revision.
 
 ## Current Boundary
 
-The standalone crate still references local model crates from the sibling core
-checkout, including `../tracedb/crates/tracedb-query` and
-`../tracedb/crates/tracedb-features`. This is acceptable during migration but
-blocks crates.io publishing. See `ROADMAP.md` for the packaging cleanup plan.
+The standalone crate now owns its HTTP contract wire models directly. It no
+longer references local model crates from the sibling core checkout, and local
+integration tests start the sibling `tracedb-server` binary through Cargo
+instead of linking it as a dev dependency. Real-server integration tests skip
+when that sibling checkout is not present.
+
+This closes the path-dependency packaging blocker. A crates.io release still
+needs release review, version bump discipline, and protocol-lock signoff.
 
 ## Validation
 
 Fresh local validation on 2026-06-02:
 
+- `cargo check --all-targets` passed.
+- `cargo package` passed.
 - `cargo test --no-run` passed.
 - `cargo test` passed with 62 HTTP-client tests and 6 quickstart-example tests.
 

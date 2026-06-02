@@ -13,14 +13,393 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tracedb_features::FeatureFreshnessMode;
-use tracedb_query::{
-    FreshnessMode, HybridExplain, HybridQuery, HybridQueryRow, RecordDeleteRequest,
-    RecordGetRequest, RecordInput, RecordOutput, RecordPatchRequest, RecordPutBatchRequest,
-    RecordScanOutput, RecordScanRequest, TableSchema, WritePathTiming,
-};
 
 pub type TraceDbClientResult<T> = std::result::Result<T, TraceDbClientError>;
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum FeatureFreshnessMode {
+    Strict,
+    Lazy,
+    AllowDirty,
+    OnRead,
+    AllowStale,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum FreshnessMode {
+    Strict,
+    Lazy,
+    AllowDirty,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct VectorColumnSchema {
+    pub name: String,
+    pub dimensions: usize,
+    pub source_columns: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TableSchema {
+    pub name: String,
+    pub primary_id_column: String,
+    pub tenant_id_column: String,
+    pub scalar_columns: Vec<String>,
+    pub text_indexed_columns: Vec<String>,
+    pub vector_columns: Vec<VectorColumnSchema>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RecordInput {
+    pub table: String,
+    pub id: String,
+    pub tenant_id: String,
+    pub fields: Map<String, Value>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecordOutput {
+    pub table: String,
+    pub id: String,
+    pub tenant_id: String,
+    pub version_id: u64,
+    pub fields: Map<String, Value>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RecordPutBatchRequest {
+    #[serde(default)]
+    pub include_write_timing: bool,
+    pub records: Vec<RecordInput>,
+}
+
+impl RecordPutBatchRequest {
+    pub fn new(records: Vec<RecordInput>) -> Self {
+        Self {
+            include_write_timing: false,
+            records,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RecordPatchRequest {
+    pub table: String,
+    pub tenant_id: String,
+    pub id: String,
+    pub fields: Map<String, Value>,
+}
+
+impl RecordPatchRequest {
+    pub fn new(
+        table: impl Into<String>,
+        tenant_id: impl Into<String>,
+        id: impl Into<String>,
+        fields: Map<String, Value>,
+    ) -> Self {
+        Self {
+            table: table.into(),
+            tenant_id: tenant_id.into(),
+            id: id.into(),
+            fields,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RecordDeleteRequest {
+    pub table: String,
+    pub tenant_id: String,
+    pub id: String,
+    #[serde(default = "default_tombstone")]
+    pub tombstone: String,
+}
+
+impl RecordDeleteRequest {
+    pub fn new(
+        table: impl Into<String>,
+        tenant_id: impl Into<String>,
+        id: impl Into<String>,
+    ) -> Self {
+        Self {
+            table: table.into(),
+            tenant_id: tenant_id.into(),
+            id: id.into(),
+            tombstone: default_tombstone(),
+        }
+    }
+
+    pub fn tombstone(mut self, tombstone: impl Into<String>) -> Self {
+        self.tombstone = tombstone.into();
+        self
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RecordGetRequest {
+    pub table: String,
+    pub tenant_id: String,
+    pub id: String,
+}
+
+impl RecordGetRequest {
+    pub fn new(
+        table: impl Into<String>,
+        tenant_id: impl Into<String>,
+        id: impl Into<String>,
+    ) -> Self {
+        Self {
+            table: table.into(),
+            tenant_id: tenant_id.into(),
+            id: id.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RecordScanRequest {
+    pub table: String,
+    pub tenant_id: String,
+    pub limit: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+impl RecordScanRequest {
+    pub fn new(table: impl Into<String>, tenant_id: impl Into<String>) -> Self {
+        Self {
+            table: table.into(),
+            tenant_id: tenant_id.into(),
+            limit: 100,
+            cursor: None,
+        }
+    }
+
+    pub fn limit(mut self, limit: usize) -> Self {
+        self.limit = limit;
+        self
+    }
+
+    pub fn cursor(mut self, cursor: impl Into<String>) -> Self {
+        self.cursor = Some(cursor.into());
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecordScanOutput {
+    pub records: Vec<RecordOutput>,
+    pub returned_count: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HybridQuery {
+    pub table: String,
+    pub tenant_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default)]
+    pub text_field: Option<String>,
+    pub text: Option<String>,
+    #[serde(default)]
+    pub vector_field: Option<String>,
+    pub vector: Option<Vec<f32>>,
+    #[serde(default)]
+    pub scalar_eq: Map<String, Value>,
+    #[serde(default)]
+    pub graph_seed: Option<String>,
+    #[serde(default)]
+    pub temporal_as_of: Option<u64>,
+    pub top_k: usize,
+    pub freshness: FreshnessMode,
+    pub explain: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ScoreComponents {
+    pub vector: Option<f32>,
+    pub lexical: Option<f32>,
+    pub relational: Option<f32>,
+    pub freshness_penalty: Option<f32>,
+    pub final_score: f32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct QueryRow {
+    pub record_id: String,
+    pub version_id: u64,
+    pub tenant_id: String,
+    pub fields: Map<String, Value>,
+    pub score: ScoreComponents,
+}
+
+pub type HybridQueryRow = QueryRow;
+pub type HybridScoreComponents = ScoreComponents;
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum FeatureFreshness {
+    Ready,
+    Dirty,
+    Pending,
+    Failed,
+    Missing,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Candidate {
+    pub record_id: String,
+    pub version_id: u64,
+    pub score_components: ScoreComponents,
+    pub score_upper_bound: Option<f32>,
+    pub source: String,
+    pub freshness: FeatureFreshness,
+    pub visibility_checked: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AccessPathExplain {
+    pub access_path_id: String,
+    pub opened: bool,
+    pub visibility_checked_before_open: bool,
+    pub candidates: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct QueryPhaseTiming {
+    pub phase: String,
+    pub elapsed_ms: f64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AccessPathTiming {
+    pub access_path_id: String,
+    pub build_ms: f64,
+    pub open_ms: f64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ExplainOutput {
+    pub read_epoch: u64,
+    pub schema_epoch: u64,
+    pub policy_epoch: u64,
+    pub tenant_mask_visible_records: usize,
+    pub scalar_filter_applied: bool,
+    pub scalar_filter_predicates: Vec<String>,
+    pub scalar_filter_visible_records: usize,
+    pub scalar_filter_removed_records: usize,
+    pub opened_candidate_streams: Vec<String>,
+    pub access_paths: Vec<AccessPathExplain>,
+    pub planner_candidates: Vec<Candidate>,
+    pub candidate_budget: usize,
+    pub text_candidates: usize,
+    pub vector_candidates: usize,
+    pub hot_overlay_searched: bool,
+    pub freshness_mode: String,
+    pub dirty_feature_count: usize,
+    pub pending_feature_count: usize,
+    pub failed_feature_count: usize,
+    pub missing_feature_count: usize,
+    pub fusion_method: String,
+    pub deduped_candidate_count: usize,
+    pub materialized_count: usize,
+    pub final_visibility_guard_count: usize,
+    pub final_visibility_guard_removed: usize,
+    pub returned_count: usize,
+    pub segments_scanned: usize,
+    pub module_versions: Vec<String>,
+    pub selected_strategy: Option<String>,
+    pub skipped_access_paths: Vec<String>,
+    pub exact_fallback_triggered: bool,
+    pub early_stop_reason: Option<String>,
+    #[serde(default)]
+    pub lexical_cache_hits: usize,
+    #[serde(default)]
+    pub lexical_cache_misses: usize,
+    #[serde(default)]
+    pub lexical_indexed_documents: usize,
+    #[serde(default)]
+    pub lexical_scored_documents: usize,
+    #[serde(default)]
+    pub phase_timings: Vec<QueryPhaseTiming>,
+    #[serde(default)]
+    pub access_path_timings: Vec<AccessPathTiming>,
+}
+
+pub type HybridExplain = ExplainOutput;
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct QueryOutput {
+    pub results: Vec<QueryRow>,
+    pub explain: ExplainOutput,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+pub type HybridQueryOutput = QueryOutput;
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct WritePathTiming {
+    pub total_ms: f64,
+    pub lock_ms: f64,
+    pub refresh_total_ms: f64,
+    pub refresh_manifest_read_ms: f64,
+    pub refresh_wal_tail_ms: f64,
+    pub refresh_reopen_ms: f64,
+    pub refresh_performed: bool,
+    pub schema_lookup_ms: f64,
+    pub store_clone_ms: f64,
+    #[serde(default)]
+    pub store_delta_plan_ms: f64,
+    #[serde(default)]
+    pub store_delta_apply_ms: f64,
+    pub store_apply_ms: f64,
+    #[serde(default)]
+    pub store_apply_validate_identity_ms: f64,
+    #[serde(default)]
+    pub store_apply_validate_vector_ms: f64,
+    #[serde(default)]
+    pub store_apply_key_ms: f64,
+    #[serde(default)]
+    pub store_apply_fields_ms: f64,
+    #[serde(default)]
+    pub store_apply_finalize_identity_ms: f64,
+    #[serde(default)]
+    pub store_apply_features_ms: f64,
+    #[serde(default)]
+    pub store_apply_install_ms: f64,
+    pub feature_invalidation_ms: f64,
+    pub commit_build_ms: f64,
+    pub wal_total_ms: f64,
+    pub wal_lock_tail_ms: f64,
+    pub wal_frame_build_ms: f64,
+    pub wal_commit_prepare_ms: f64,
+    pub wal_serialize_ms: f64,
+    pub wal_payload_checksum_ms: f64,
+    pub wal_frame_assembly_ms: f64,
+    pub wal_payload_bytes: u64,
+    pub wal_frame_bytes: u64,
+    pub wal_write_ms: f64,
+    pub wal_sync_data_ms: f64,
+    pub wal_tail_update_ms: f64,
+    pub store_install_ms: f64,
+    pub manifest_total_ms: f64,
+    pub manifest_clone_ms: f64,
+    pub manifest_write_total_ms: f64,
+    pub manifest_bytes: u64,
+    pub manifest_checksum_ms: f64,
+    pub manifest_serialize_ms: f64,
+    pub manifest_write_ms: f64,
+    pub manifest_sync_file_ms: f64,
+    pub manifest_rename_ms: f64,
+    pub manifest_sync_dir_ms: f64,
+    pub cache_clear_ms: f64,
+}
+
+fn default_tombstone() -> String {
+    "user_delete".to_string()
+}
 
 #[derive(Clone, Debug)]
 pub enum TraceDbClientError {

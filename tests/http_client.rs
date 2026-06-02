@@ -4,22 +4,20 @@ use std::future::Future;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
+use std::process::{Child, Command, Stdio};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
 use std::time::{Duration, Instant};
-use tracedb_features::FeatureFreshnessMode;
-use tracedb_query::{
-    FreshnessMode, HybridExplain, HybridQuery, HybridQueryRow, RecordDeleteRequest,
-    RecordGetRequest, RecordInput, RecordPatchRequest, RecordPutBatchRequest, RecordScanRequest,
-    TableSchema, VectorColumnSchema,
-};
 use tracedb_sdk::{
-    BranchesResponse, DatabasesResponse, ErrorResponse, GraphQlQueryRequest, GraphQlSchemaResponse,
-    HealthResponse, JobsResponse, MetricsResponse, ReadyResponse, RestoreRequest, SnapshotRequest,
-    TableHandle, TableRecordInput, TraceDb, TraceDbAsyncClient, TraceDbClient, TraceDbClientConfig,
-    TraceDbClientError, TraceDbRequestOptions, TraceQlQueryRequest,
+    BranchesResponse, DatabasesResponse, ErrorResponse, FeatureFreshnessMode, FreshnessMode,
+    GraphQlQueryRequest, GraphQlSchemaResponse, HealthResponse, HybridExplain, HybridQuery,
+    HybridQueryRow, JobsResponse, MetricsResponse, ReadyResponse, RecordDeleteRequest,
+    RecordGetRequest, RecordInput, RecordPatchRequest, RecordPutBatchRequest, RecordScanRequest,
+    RestoreRequest, SnapshotRequest, TableHandle, TableRecordInput, TableSchema, TraceDb,
+    TraceDbAsyncClient, TraceDbClient, TraceDbClientConfig, TraceDbClientError,
+    TraceDbRequestOptions, TraceQlQueryRequest, VectorColumnSchema,
 };
 
 fn schema() -> TableSchema {
@@ -379,17 +377,43 @@ fn block_on<F: Future>(future: F) -> F::Output {
         .block_on(future)
 }
 
-fn start_real_http_server(data_dir: PathBuf) -> String {
+struct TestServer {
+    url: String,
+    child: Child,
+}
+
+impl Drop for TestServer {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+fn sibling_core_root() -> Option<PathBuf> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tracedb");
+    root.join("Cargo.toml").exists().then_some(root)
+}
+
+fn start_real_http_server(data_dir: PathBuf) -> Option<TestServer> {
+    let core_root = sibling_core_root()?;
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     drop(listener);
     let bind = addr.to_string();
-    std::thread::spawn(move || {
-        let _ = tracedb_server::serve(data_dir, &bind);
-    });
     let url = format!("http://{addr}");
+    let child = Command::new(env!("CARGO"))
+        .current_dir(core_root)
+        .env("TRACEDB_SERVICE_MODE", "engine")
+        .env("TRACEDB_DATA_DIR", data_dir)
+        .env("TRACEDB_BIND", bind)
+        .args(["run", "-q", "-p", "tracedb-server"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn sibling TraceDB HTTP test server");
     wait_for_ready_endpoint(&url);
-    url
+    Some(TestServer { url, child })
 }
 
 fn wait_for_ready_endpoint(url: &str) {
@@ -1733,7 +1757,11 @@ fn typed_readonly_responses_deserialize_gateway_shapes() {
 #[test]
 fn client_executes_real_http_product_path() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let url = start_real_http_server(temp.path().to_path_buf());
+    let Some(server) = start_real_http_server(temp.path().to_path_buf()) else {
+        eprintln!("skipping real HTTP product path: sibling tracedb checkout not found");
+        return;
+    };
+    let url = server.url.clone();
 
     let client = TraceDbClient::new(TraceDbClientConfig::managed(url, "dev-token"));
 
@@ -1790,7 +1818,11 @@ fn client_executes_real_http_product_path() {
 #[test]
 fn async_client_executes_real_typed_http_read_path() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let url = start_real_http_server(temp.path().to_path_buf());
+    let Some(server) = start_real_http_server(temp.path().to_path_buf()) else {
+        eprintln!("skipping async real HTTP read path: sibling tracedb checkout not found");
+        return;
+    };
+    let url = server.url.clone();
 
     let client = TraceDbAsyncClient::new(TraceDbClientConfig::managed(url, "dev-token"));
 
@@ -1820,7 +1852,11 @@ fn async_client_executes_real_typed_http_read_path() {
 fn async_client_executes_real_typed_write_admin_path() {
     let temp = tempfile::tempdir().expect("tempdir");
     let data_dir = temp.path().join("engine");
-    let url = start_real_http_server(data_dir);
+    let Some(server) = start_real_http_server(data_dir) else {
+        eprintln!("skipping async real write/admin path: sibling tracedb checkout not found");
+        return;
+    };
+    let url = server.url.clone();
 
     let client = TraceDbAsyncClient::new(
         TraceDbClientConfig::managed(url, "dev-token").with_idempotency_retries(1),
@@ -1894,7 +1930,11 @@ fn async_client_executes_real_typed_write_admin_path() {
 #[test]
 fn client_executes_typed_http_product_path() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let url = start_real_http_server(temp.path().to_path_buf());
+    let Some(server) = start_real_http_server(temp.path().to_path_buf()) else {
+        eprintln!("skipping typed real HTTP product path: sibling tracedb checkout not found");
+        return;
+    };
+    let url = server.url.clone();
 
     let client = TraceDbClient::new(TraceDbClientConfig::managed(url, "dev-token"));
 
@@ -1992,7 +2032,11 @@ fn client_executes_typed_http_product_path() {
 #[test]
 fn table_handle_executes_real_typed_product_path() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let url = start_real_http_server(temp.path().to_path_buf());
+    let Some(server) = start_real_http_server(temp.path().to_path_buf()) else {
+        eprintln!("skipping table handle real product path: sibling tracedb checkout not found");
+        return;
+    };
+    let url = server.url.clone();
 
     let client = TraceDbClient::new(TraceDbClientConfig::managed(url, "dev-token"));
     client.apply_schema_typed(&schema()).expect("schema");
@@ -2059,7 +2103,11 @@ fn table_handle_executes_real_typed_product_path() {
 #[test]
 fn table_handle_insert_batch_executes_real_typed_product_path() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let url = start_real_http_server(temp.path().to_path_buf());
+    let Some(server) = start_real_http_server(temp.path().to_path_buf()) else {
+        eprintln!("skipping table batch real product path: sibling tracedb checkout not found");
+        return;
+    };
+    let url = server.url.clone();
 
     let client = TraceDbClient::new(TraceDbClientConfig::managed(url, "dev-token"));
     client.apply_schema_typed(&schema()).expect("schema");
@@ -2113,7 +2161,13 @@ fn table_handle_insert_batch_executes_real_typed_product_path() {
 #[test]
 fn client_idempotency_options_replay_write_response_against_real_server() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let url = start_real_http_server(temp.path().to_path_buf());
+    let Some(server) = start_real_http_server(temp.path().to_path_buf()) else {
+        eprintln!(
+            "skipping real server idempotency replay path: sibling tracedb checkout not found"
+        );
+        return;
+    };
+    let url = server.url.clone();
 
     let client =
         TraceDbClient::new(TraceDbClientConfig::managed(url, "dev-token").with_safe_retries(2));
@@ -2172,7 +2226,11 @@ fn client_idempotency_options_replay_write_response_against_real_server() {
 fn client_executes_typed_snapshot_restore_with_idempotency_options() {
     let temp = tempfile::tempdir().expect("tempdir");
     let data_dir = temp.path().join("engine");
-    let url = start_real_http_server(data_dir);
+    let Some(server) = start_real_http_server(data_dir) else {
+        eprintln!("skipping typed snapshot/restore path: sibling tracedb checkout not found");
+        return;
+    };
+    let url = server.url.clone();
 
     let client = TraceDbClient::new(TraceDbClientConfig::managed(url, "dev-token"));
     client.apply_schema_typed(&schema()).expect("schema");

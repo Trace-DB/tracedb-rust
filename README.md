@@ -37,9 +37,12 @@ cargo run --example quickstart -- --url http://127.0.0.1:8090 --token dev-token
 This repository is the standalone Rust SDK lane for
 `platform-contract-v0`, pinned by `tracedb-protocol.lock`.
 
-Local tests pass, but crates.io publication remains blocked because the crate
-still depends on sibling core path dependencies, including
-`../tracedb/crates/tracedb-query` and
-`../tracedb/crates/tracedb-features`. Before a crates.io release, the shared
-protocol/model types should move to published versioned crates or be generated
-into this crate from `tracedb-protocol`.
+The crate owns its HTTP contract wire models directly and has no normal or
+dev-dependency path links to the sibling core repo. Local integration tests
+still start the sibling `tracedb-server` process through Cargo so the SDK can
+exercise the real local HTTP product path without linking core crates. Those
+real-server tests skip when the sibling core checkout is not present.
+
+`cargo package` passes locally. A crates.io release still needs a release
+review and versioned protocol-lock signoff; this repository does not claim
+publication until that release is performed.

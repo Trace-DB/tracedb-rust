@@ -4,13 +4,11 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracedb_query::{
-    FreshnessMode, HybridQuery, RecordDeleteRequest, RecordGetRequest, RecordInput,
-    RecordPatchRequest, RecordScanRequest, TableSchema, VectorColumnSchema,
-};
 use tracedb_sdk::{
-    ErrorResponse, RestoreRequest, SnapshotRequest, TraceDbClient, TraceDbClientConfig,
-    TraceDbClientError, TraceDbRequestOptions,
+    ErrorResponse, FreshnessMode, HybridQuery, RecordDeleteRequest, RecordGetRequest, RecordInput,
+    RecordPatchRequest, RecordScanRequest, RestoreRequest, SnapshotRequest, TableSchema,
+    TraceDbClient, TraceDbClientConfig, TraceDbClientError, TraceDbRequestOptions,
+    VectorColumnSchema,
 };
 
 fn main() {
