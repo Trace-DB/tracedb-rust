@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
-//! Official Rust SDK for TraceDB.
+//! TraceDB Rust SDK for current local HTTP workflows.
+
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const NAME: &str = env!("CARGO_PKG_NAME");
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -815,7 +818,7 @@ impl TraceDbClient {
         let idempotency_key_header = idempotency_key_header(method, &request_path, options)?;
         let mut stream = target.connect(method, &request_path, timeout)?;
         let mut request = format!(
-            "{method} {request_path} HTTP/1.1\r\nHost: {}\r\nAccept: application/json\r\nConnection: close\r\nContent-Length: {}\r\n",
+            "{method} {request_path} HTTP/1.1\r\nHost: {}\r\nAccept: application/json\r\nConnection: close\r\nContent-Length: {}\r\nUser-Agent: {NAME}/{VERSION}\r\n",
             target.authority,
             body_bytes.len()
         );
@@ -1311,7 +1314,8 @@ impl TraceDbAsyncClient {
             .header(
                 reqwest::header::CONTENT_LENGTH,
                 body_bytes.len().to_string(),
-            );
+            )
+            .header("User-Agent", format!("{NAME}/{VERSION}"));
         if !self.inner.config.token.is_empty() {
             request = request.bearer_auth(&self.inner.config.token);
         }

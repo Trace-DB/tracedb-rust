@@ -2203,6 +2203,7 @@ dependencies = [
  "tracedb-temporal",
  "tracedb-text",
  "tracedb-vector",
+ "tracing",
 ]
 
 [[package]]

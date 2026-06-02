@@ -438,7 +438,7 @@ impl QuickstartArgs {
     }
 
     fn usage() -> &'static str {
-        "Usage: cargo run -p tracedb-sdk --example quickstart -- --url http://127.0.0.1:8080 [--token TOKEN] [--database-id DB] [--branch-id BRANCH] [--timeout-ms MS] [--safe-retries N] [--idempotency-retries N] [--admin-dir SERVER_SIDE_DIR]"
+        "Usage: cargo run --example quickstart -- --url http://127.0.0.1:8080 [--token TOKEN] [--database-id DB] [--branch-id BRANCH] [--timeout-ms MS] [--safe-retries N] [--idempotency-retries N] [--admin-dir SERVER_SIDE_DIR]"
     }
 }
 
