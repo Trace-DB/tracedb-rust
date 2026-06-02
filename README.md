@@ -49,6 +49,4 @@ still start the sibling `tracedb-server` process through Cargo so the SDK can
 exercise the real local HTTP product path without linking core crates. Those
 real-server tests skip when the sibling core checkout is not present.
 
-`cargo package` passes locally. A crates.io release still needs a release
-review and versioned protocol-lock signoff; this repository does not claim
-publication until that release is performed.
+The crate is live on crates.io as `tracedb-sdk = "0.1.0"`.
