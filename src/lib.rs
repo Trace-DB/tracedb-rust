@@ -2438,10 +2438,8 @@ fn graphql_root_field(query: &str) -> Option<&str> {
     }
     let root = if word_starts_with(trimmed, "query") {
         trimmed.find('{').map(|index| &trimmed[index + 1..])?
-    } else if let Some(rest) = trimmed.strip_prefix('{') {
-        rest
     } else {
-        return None;
+        trimmed.strip_prefix('{')?
     };
     let (name, rest) = parse_graphql_name(root)?;
     let rest = rest.trim_start();
