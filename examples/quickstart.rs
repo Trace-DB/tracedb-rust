@@ -19,18 +19,25 @@ fn main() {
     }
 }
 
-fn run() -> Result<(), QuickstartFailure> {
+fn run() -> Result<(), Box<QuickstartFailure>> {
     let args = QuickstartArgs::from_env().map_err(|message| {
-        QuickstartFailure::configuration(message, QuickstartFailureContext::from_env_and_cli())
+        Box::new(QuickstartFailure::configuration(
+            message,
+            QuickstartFailureContext::from_env_and_cli(),
+        ))
     })?;
     if args.help {
         println!("{}", QuickstartArgs::usage());
         return Ok(());
     }
     validate_quickstart_url(&args.url)
-        .map_err(|message| QuickstartFailure::configuration(message, (&args).into()))?;
-    run_quickstart(&args)
-        .map_err(|error| QuickstartFailure::execution(error.to_string(), (&args).into()))
+        .map_err(|message| Box::new(QuickstartFailure::configuration(message, (&args).into())))?;
+    run_quickstart(&args).map_err(|error| {
+        Box::new(QuickstartFailure::execution(
+            error.to_string(),
+            (&args).into(),
+        ))
+    })
 }
 
 fn run_quickstart(args: &QuickstartArgs) -> Result<(), Box<dyn Error>> {
@@ -623,10 +630,7 @@ fn error_envelope_smoke(client: &TraceDbClient) -> Result<Value, Box<dyn Error>>
 }
 
 fn quickstart_error(message: impl Into<String>) -> Box<dyn Error> {
-    Box::new(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        message.into(),
-    ))
+    Box::new(std::io::Error::other(message.into()))
 }
 
 fn patch_request() -> RecordPatchRequest {

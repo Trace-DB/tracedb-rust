@@ -1,5 +1,20 @@
 #![forbid(unsafe_code)]
 //! TraceDB Rust SDK for current local HTTP workflows.
+//!
+//! # Examples
+//!
+//! ```rust,no_run
+//! # use tracedb_sdk::{TraceDbClient, TraceDbClientConfig};
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let url = String::from("http://127.0.0.1:8090");
+//! let token = String::from("dev-token");
+//! let config = TraceDbClientConfig::managed(url, token);
+//! let client = TraceDbClient::new(config);
+//! let ready = client.ready_typed()?;
+//! println!("ready: {}", ready.ready);
+//! # Ok(())
+//! # }
+//! ```
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const NAME: &str = env!("CARGO_PKG_NAME");
@@ -2462,7 +2477,7 @@ fn word_starts_with(input: &str, word: &str) -> bool {
         && input[word.len()..]
             .chars()
             .next()
-            .is_none_or(|ch| !(ch == '_' || ch.is_ascii_alphanumeric()))
+            .map_or(true, |ch| !(ch == '_' || ch.is_ascii_alphanumeric()))
 }
 
 fn body_query(body: Option<&Value>) -> Option<&str> {

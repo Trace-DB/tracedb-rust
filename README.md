@@ -14,6 +14,12 @@ The crate provides:
 - Crate identity constants `NAME`/`VERSION`; sync and async HTTP requests send
   `User-Agent: {NAME}/{VERSION}`.
 
+## Install
+
+```bash
+cargo add tracedb-sdk
+```
+
 ## Quickstart
 
 ```rust
