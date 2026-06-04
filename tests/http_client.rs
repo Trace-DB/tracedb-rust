@@ -1,5 +1,6 @@
 use serde_json::json;
 use std::fs;
+#[cfg(feature = "async")]
 use std::future::Future;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -10,14 +11,16 @@ use std::sync::{
     Arc,
 };
 use std::time::{Duration, Instant};
+#[cfg(feature = "async")]
+use tracedb_sdk::TraceDbAsyncClient;
 use tracedb_sdk::{
     BranchesResponse, DatabasesResponse, ErrorResponse, FeatureFreshnessMode, FreshnessMode,
     GraphQlQueryRequest, GraphQlSchemaResponse, HealthResponse, HybridExplain, HybridQuery,
     HybridQueryRow, JobsResponse, MetricsResponse, ReadyResponse, RecordDeleteRequest,
     RecordGetRequest, RecordInput, RecordPatchRequest, RecordPutBatchRequest, RecordScanRequest,
     RestoreRequest, SnapshotRequest, TableHandle, TableRecordInput, TableSchema, TraceDb,
-    TraceDbAsyncClient, TraceDbClient, TraceDbClientConfig, TraceDbClientError,
-    TraceDbRequestOptions, TraceQlQueryRequest, VectorColumnSchema,
+    TraceDbClient, TraceDbClientConfig, TraceDbClientError, TraceDbRequestOptions,
+    TraceQlQueryRequest, VectorColumnSchema,
 };
 
 fn schema() -> TableSchema {
@@ -369,6 +372,7 @@ fn http_request_is_complete(request: &[u8]) -> bool {
     request.len() >= header_end + 4 + content_length
 }
 
+#[cfg(feature = "async")]
 fn block_on<F: Future>(future: F) -> F::Output {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -403,27 +407,39 @@ fn start_real_http_server(data_dir: PathBuf) -> Option<TestServer> {
     let url = format!("http://{addr}");
     let child = Command::new(env!("CARGO"))
         .current_dir(core_root)
+        .env_remove("CARGO_TARGET_DIR")
         .env("TRACEDB_SERVICE_MODE", "engine")
         .env("TRACEDB_DATA_DIR", data_dir)
         .env("TRACEDB_BIND", bind)
         .args(["run", "-q", "-p", "tracedb-server"])
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("spawn sibling TraceDB HTTP test server");
-    wait_for_ready_endpoint(&url);
+    let mut child = child;
+    wait_for_ready_endpoint(&url, &mut child);
     Some(TestServer { url, child })
 }
 
-fn wait_for_ready_endpoint(url: &str) {
+fn wait_for_ready_endpoint(url: &str, child: &mut Child) {
     let client = TraceDbClient::new(
         TraceDbClientConfig::managed(url.to_string(), "dev-token")
-            .with_timeout(Duration::from_millis(100)),
+            .with_timeout(Duration::from_millis(250)),
     );
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(30);
     let mut last_error = None;
     while Instant::now() < deadline {
+        if let Some(status) = child
+            .try_wait()
+            .expect("poll sibling TraceDB HTTP test server")
+        {
+            let (stdout, stderr) = collect_finished_child_output(child);
+            panic!(
+                "real TraceDB HTTP test server exited before becoming ready at {url}; status: {status}; last error: {}; stdout:\n{stdout}\nstderr:\n{stderr}",
+                last_error.unwrap_or_else(|| "no readiness attempt completed".to_string())
+            );
+        }
         match client.ready_typed() {
             Ok(response) if response.ready => return,
             Ok(response) => {
@@ -435,12 +451,28 @@ fn wait_for_ready_endpoint(url: &str) {
         }
         std::thread::sleep(Duration::from_millis(20));
     }
+    let _ = child.kill();
+    let status = child.wait().ok();
+    let (stdout, stderr) = collect_finished_child_output(child);
     panic!(
-        "real TraceDB HTTP test server did not become ready at {url}; last error: {}",
+        "real TraceDB HTTP test server did not become ready at {url}; status after timeout: {status:?}; last error: {}; stdout:\n{stdout}\nstderr:\n{stderr}",
         last_error.unwrap_or_else(|| "no readiness attempt completed".to_string())
     );
 }
 
+fn collect_finished_child_output(child: &mut Child) -> (String, String) {
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        let _ = pipe.read_to_string(&mut stdout);
+    }
+    if let Some(mut pipe) = child.stderr.take() {
+        let _ = pipe.read_to_string(&mut stderr);
+    }
+    (stdout, stderr)
+}
+
+#[cfg(feature = "async")]
 #[test]
 fn async_client_decodes_typed_readiness_response() {
     let url = http_response_server(
@@ -454,6 +486,7 @@ fn async_client_decodes_typed_readiness_response() {
     assert_eq!(response.service.as_deref(), Some("tracedb-engine"));
 }
 
+#[cfg(feature = "async")]
 #[test]
 fn async_client_starts_http_work_without_blocking_first_poll() {
     let url = stalled_response_server(Duration::from_millis(250));
@@ -494,6 +527,7 @@ fn async_client_starts_http_work_without_blocking_first_poll() {
     }
 }
 
+#[cfg(feature = "async")]
 #[test]
 fn async_client_typed_write_options_retry_5xx_when_idempotent() {
     let (url, attempts) = sequence_response_server(vec![
@@ -974,6 +1008,7 @@ fn graphql_schema_typed_retries_transient_read_failures_when_safe_retries_enable
     assert_eq!(attempts.load(Ordering::SeqCst), 2);
 }
 
+#[cfg(feature = "async")]
 #[test]
 fn async_client_graphql_typed_posts_bounded_query_string() {
     let (url, request_body) = capture_json_body_response_server(r#"{"results":[]}"#);
@@ -993,6 +1028,7 @@ fn async_client_graphql_typed_posts_bounded_query_string() {
     );
 }
 
+#[cfg(feature = "async")]
 #[test]
 fn async_client_graphql_schema_typed_gets_generated_schema_response() {
     let response_body = r#"{"adapter":"bounded_graphql_query_adapter","schema":"type Query {\n  docs(tenant_id: String!, limit: Int): [docs!]!\n}\n","tables":["docs"],"execution":"POST /v1/graphql/bounded returns TraceDB QueryResponse; POST /v1/graphql returns GraphQL data/errors"}"#;
@@ -1815,6 +1851,7 @@ fn client_executes_real_http_product_path() {
     );
 }
 
+#[cfg(feature = "async")]
 #[test]
 fn async_client_executes_real_typed_http_read_path() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -1848,6 +1885,7 @@ fn async_client_executes_real_typed_http_read_path() {
     );
 }
 
+#[cfg(feature = "async")]
 #[test]
 fn async_client_executes_real_typed_write_admin_path() {
     let temp = tempfile::tempdir().expect("tempdir");
