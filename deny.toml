@@ -3,7 +3,6 @@
 
 [advisories]
 db-path = "~/.cargo/advisory-db"
-vulnerability = "deny"
 unmaintained = "workspace"
 unsound = "workspace"
 
@@ -21,7 +20,6 @@ allow = [
     "Zlib",
     "CDLA-Permissive-2.0",
 ]
-unlicensed = "deny"
 
 [bans]
 multiple-versions = "warn"
