@@ -1695,31 +1695,31 @@ fn typed_response_shape_errors_include_method_and_path() {
 }
 
 #[test]
-fn typed_readonly_responses_deserialize_gateway_shapes() {
+fn typed_readonly_responses_deserialize_hosted_api_shapes() {
     let health: HealthResponse = serde_json::from_value(json!({
         "ok": true,
-        "service": "tracedb-gateway",
+        "service": "tracedb-api",
         "engine_url": "http://127.0.0.1:8090",
         "catalog_databases": 2,
         "metered_requests": 17,
     }))
-    .expect("gateway health");
+    .expect("hosted api health");
     assert!(health.ok);
-    assert_eq!(health.service.as_deref(), Some("tracedb-gateway"));
+    assert_eq!(health.service.as_deref(), Some("tracedb-api"));
     assert_eq!(health.catalog_databases, Some(2));
     assert_eq!(health.metered_requests, Some(17));
 
     let ready: ReadyResponse = serde_json::from_value(json!({
         "ok": true,
         "ready": true,
-        "service": "tracedb-gateway",
+        "service": "tracedb-api",
         "engine_url": "http://127.0.0.1:8090",
         "engine_health_checked": true,
         "engine_status_code": 200,
         "catalog_databases": 2,
         "metered_requests": 18,
     }))
-    .expect("gateway ready");
+    .expect("hosted api ready");
     assert!(ready.ready);
     assert_eq!(ready.ok, Some(true));
     assert_eq!(ready.engine_health_checked, Some(true));
@@ -1728,12 +1728,12 @@ fn typed_readonly_responses_deserialize_gateway_shapes() {
     let not_ready: ReadyResponse = serde_json::from_value(json!({
         "ok": false,
         "ready": false,
-        "service": "tracedb-gateway",
+        "service": "tracedb-api",
         "engine_url": "http://127.0.0.1:8090",
         "engine_health_checked": true,
         "error": "connection refused",
     }))
-    .expect("gateway not ready");
+    .expect("hosted api not ready");
     assert!(!not_ready.ready);
     assert_eq!(not_ready.error.as_deref(), Some("connection refused"));
 
@@ -1748,7 +1748,7 @@ fn typed_readonly_responses_deserialize_gateway_shapes() {
             "endpoint": "https://db-a.example.test",
         }],
     }))
-    .expect("gateway databases");
+    .expect("hosted api databases");
     assert_eq!(databases.gateway, Some(true));
     assert_eq!(databases.databases[0].database_id, "db-a");
     assert_eq!(databases.databases[0].org_id.as_deref(), Some("org-a"));
@@ -1763,19 +1763,19 @@ fn typed_readonly_responses_deserialize_gateway_shapes() {
             "endpoint": "https://db-a-main.example.test",
         }],
     }))
-    .expect("gateway branches");
+    .expect("hosted api branches");
     assert_eq!(branches.gateway, Some(true));
     assert_eq!(branches.branches[0].branch_id, "db-a:main");
     assert_eq!(branches.branches[0].parent_branch_id, None);
 
     let metrics: MetricsResponse = serde_json::from_value(json!({
         "gateway": true,
-        "service": "tracedb-gateway",
+        "service": "tracedb-api",
         "requests": 21,
         "rate_limit_enabled": true,
         "rate_limit_requests": 1000,
     }))
-    .expect("gateway metrics");
+    .expect("hosted api metrics");
     assert_eq!(metrics.gateway, Some(true));
     assert_eq!(metrics.requests, Some(21));
     assert_eq!(metrics.rate_limit_enabled, Some(true));
@@ -1786,7 +1786,7 @@ fn typed_readonly_responses_deserialize_gateway_shapes() {
             "state": "idle",
         }],
     }))
-    .expect("gateway admin jobs");
+    .expect("hosted api admin jobs");
     assert_eq!(jobs.jobs[0].queue, "tracedb.snapshot.create");
 }
 
