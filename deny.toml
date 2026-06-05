@@ -4,8 +4,8 @@
 [advisories]
 db-path = "~/.cargo/advisory-db"
 vulnerability = "deny"
-unmaintained = "warn"
-unsound = "warn"
+unmaintained = "workspace"
+unsound = "workspace"
 
 [licenses]
 allow = [
