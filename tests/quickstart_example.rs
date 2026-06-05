@@ -1,4 +1,5 @@
 use serde_json::Value;
+use std::io::Read;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -312,27 +313,39 @@ fn start_quickstart_test_server(data_dir: PathBuf) -> Option<TestServer> {
     let url = format!("http://{addr}");
     let child = Command::new(env!("CARGO"))
         .current_dir(core_root)
+        .env_remove("CARGO_TARGET_DIR")
         .env("TRACEDB_SERVICE_MODE", "engine")
         .env("TRACEDB_DATA_DIR", data_dir)
         .env("TRACEDB_BIND", bind)
         .args(["run", "-q", "-p", "tracedb-server"])
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("spawn sibling TraceDB quickstart test server");
-    wait_for_quickstart_ready(&url);
+    let mut child = child;
+    wait_for_quickstart_ready(&url, &mut child);
     Some(TestServer { url, child })
 }
 
-fn wait_for_quickstart_ready(url: &str) {
+fn wait_for_quickstart_ready(url: &str, child: &mut Child) {
     let client = TraceDbClient::new(
         TraceDbClientConfig::managed(url.to_string(), "dev-token")
-            .with_timeout(Duration::from_millis(100)),
+            .with_timeout(Duration::from_millis(250)),
     );
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(30);
     let mut last_error = None;
     while Instant::now() < deadline {
+        if let Some(status) = child
+            .try_wait()
+            .expect("poll sibling TraceDB quickstart test server")
+        {
+            let (stdout, stderr) = collect_finished_child_output(child);
+            panic!(
+                "quickstart TraceDB HTTP test server exited before becoming ready at {url}; status: {status}; last error: {}; stdout:\n{stdout}\nstderr:\n{stderr}",
+                last_error.unwrap_or_else(|| "no readiness attempt completed".to_string())
+            );
+        }
         match client.ready_typed() {
             Ok(response) if response.ready => return,
             Ok(response) => {
@@ -344,10 +357,25 @@ fn wait_for_quickstart_ready(url: &str) {
         }
         std::thread::sleep(Duration::from_millis(20));
     }
+    let _ = child.kill();
+    let status = child.wait().ok();
+    let (stdout, stderr) = collect_finished_child_output(child);
     panic!(
-        "quickstart TraceDB HTTP test server did not become ready at {url}; last error: {}",
+        "quickstart TraceDB HTTP test server did not become ready at {url}; status after timeout: {status:?}; last error: {}; stdout:\n{stdout}\nstderr:\n{stderr}",
         last_error.unwrap_or_else(|| "no readiness attempt completed".to_string())
     );
+}
+
+fn collect_finished_child_output(child: &mut Child) -> (String, String) {
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        let _ = pipe.read_to_string(&mut stdout);
+    }
+    if let Some(mut pipe) = child.stderr.take() {
+        let _ = pipe.read_to_string(&mut stderr);
+    }
+    (stdout, stderr)
 }
 
 fn quickstart_failure_summary(output: &std::process::Output) -> Value {

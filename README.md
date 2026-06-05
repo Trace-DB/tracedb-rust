@@ -1,5 +1,9 @@
 # TraceDB Rust SDK
 
+[![crates.io](https://img.shields.io/crates/v/tracedb-sdk)](https://crates.io/crates/tracedb-sdk)
+[![docs.rs](https://img.shields.io/docsrs/tracedb-sdk)](https://docs.rs/tracedb-sdk)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/Trace-DB/tracedb-rust/blob/main/LICENSE)
+
 TraceDB Rust SDK for the standalone Rust SDK lane pinned to
 `platform-contract-v0`.
 

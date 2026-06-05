@@ -1,22 +1,37 @@
 #![forbid(unsafe_code)]
-//! TraceDB Rust SDK for current local HTTP workflows.
+#![doc = include_str!("../README.md")]
 //!
-//! # Examples
+//! # Quick example (blocking)
 //!
 //! ```rust,no_run
-//! # use tracedb_sdk::{TraceDbClient, TraceDbClientConfig};
+//! use tracedb_sdk::{TraceDbClient, TraceDbClientConfig};
+//!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let url = String::from("http://127.0.0.1:8090");
-//! let token = String::from("dev-token");
-//! let config = TraceDbClientConfig::managed(url, token);
+//! let config = TraceDbClientConfig::from_env()?;
 //! let client = TraceDbClient::new(config);
 //! let ready = client.ready_typed()?;
 //! println!("ready: {}", ready.ready);
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! # Quick example (async)
+//!
+//! ```rust,no_run
+//! use tracedb_sdk::{TraceDbAsyncClient, TraceDbClientConfig};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let config = TraceDbClientConfig::from_env()?;
+//! let client = TraceDbAsyncClient::new(config);
+//! let ready = client.ready_typed().await?;
+//! println!("ready: {}", ready.ready);
+//! # Ok(())
+//! # }
+//! ```
 
+/// Crate version, derived from `Cargo.toml`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Crate name (`tracedb-sdk`), sent in `User-Agent` headers.
 pub const NAME: &str = env!("CARGO_PKG_NAME");
 
 use serde::{Deserialize, Serialize};
@@ -29,17 +44,25 @@ use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+/// Convenience alias for `Result<T, TraceDbClientError>`.
 pub type TraceDbClientResult<T> = std::result::Result<T, TraceDbClientError>;
 
+/// Controls how stale features are handled during query planning.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum FeatureFreshnessMode {
+    /// Fail if any feature is not ready.
     Strict,
+    /// Return results even with dirty features.
     Lazy,
+    /// Allow features that have not been fully written.
     AllowDirty,
+    /// Rebuild features on read.
     OnRead,
+    /// Return results even when features are missing.
     AllowStale,
 }
 
+/// Simplified freshness mode used in [`HybridQuery`].
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum FreshnessMode {
     Strict,
@@ -47,6 +70,7 @@ pub enum FreshnessMode {
     AllowDirty,
 }
 
+/// Describes a vector column inside a [`TableSchema`].
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct VectorColumnSchema {
     pub name: String,
@@ -54,6 +78,7 @@ pub struct VectorColumnSchema {
     pub source_columns: Vec<String>,
 }
 
+/// Schema definition passed to [`TraceDbClient::apply_schema`].
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TableSchema {
     pub name: String,
@@ -64,6 +89,7 @@ pub struct TableSchema {
     pub vector_columns: Vec<VectorColumnSchema>,
 }
 
+/// Input payload for inserting a record via [`TraceDbClient::put`].
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RecordInput {
     pub table: String,
@@ -72,6 +98,7 @@ pub struct RecordInput {
     pub fields: Map<String, Value>,
 }
 
+/// A record returned from get/scan/query operations.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RecordOutput {
     pub table: String,
@@ -81,6 +108,7 @@ pub struct RecordOutput {
     pub fields: Map<String, Value>,
 }
 
+/// Batch insert request used with [`TraceDbClient::put_batch`].
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RecordPutBatchRequest {
     #[serde(default)]
@@ -97,6 +125,7 @@ impl RecordPutBatchRequest {
     }
 }
 
+/// Partial-update request used with [`TraceDbClient::patch`].
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RecordPatchRequest {
     pub table: String,
@@ -121,6 +150,7 @@ impl RecordPatchRequest {
     }
 }
 
+/// Delete request used with [`TraceDbClient::delete`].
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RecordDeleteRequest {
     pub table: String,
@@ -150,6 +180,7 @@ impl RecordDeleteRequest {
     }
 }
 
+/// Get request used with [`TraceDbClient::get`].
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RecordGetRequest {
     pub table: String,
@@ -171,6 +202,7 @@ impl RecordGetRequest {
     }
 }
 
+/// Scan request used with [`TraceDbClient::scan`].
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RecordScanRequest {
     pub table: String,
@@ -201,6 +233,7 @@ impl RecordScanRequest {
     }
 }
 
+/// Paginated result from [`TraceDbClient::scan`].
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RecordScanOutput {
     pub records: Vec<RecordOutput>,
@@ -209,6 +242,9 @@ pub struct RecordScanOutput {
     pub next_cursor: Option<String>,
 }
 
+/// Hybrid query combining text, vector, and scalar filters.
+///
+/// Sent to [`TraceDbClient::query`] or built via [`QueryBuilder`].
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HybridQuery {
     pub table: String,
@@ -232,6 +268,7 @@ pub struct HybridQuery {
     pub explain: bool,
 }
 
+/// Per-signal score breakdown for a [`QueryRow`].
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ScoreComponents {
     pub vector: Option<f32>,
@@ -241,6 +278,7 @@ pub struct ScoreComponents {
     pub final_score: f32,
 }
 
+/// A single row in a query result, including score.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct QueryRow {
     pub record_id: String,
@@ -250,18 +288,27 @@ pub struct QueryRow {
     pub score: ScoreComponents,
 }
 
+/// Alias kept for backward compatibility.
 pub type HybridQueryRow = QueryRow;
+/// Alias kept for backward compatibility.
 pub type HybridScoreComponents = ScoreComponents;
 
+/// Feature readiness state in explain output.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum FeatureFreshness {
+    /// Feature is fully materialized.
     Ready,
+    /// Feature has uncommitted writes.
     Dirty,
+    /// Feature is being built.
     Pending,
+    /// Feature build failed.
     Failed,
+    /// Feature has not been created yet.
     Missing,
 }
 
+/// A candidate result from the query planner (explain output).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Candidate {
     pub record_id: String,
@@ -273,6 +320,7 @@ pub struct Candidate {
     pub visibility_checked: bool,
 }
 
+/// Explain detail for a single access path.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AccessPathExplain {
     pub access_path_id: String,
@@ -281,12 +329,14 @@ pub struct AccessPathExplain {
     pub candidates: usize,
 }
 
+/// Timing for a single query phase (explain output).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct QueryPhaseTiming {
     pub phase: String,
     pub elapsed_ms: f64,
 }
 
+/// Build and open timing for a single access path (explain output).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AccessPathTiming {
     pub access_path_id: String,
@@ -294,6 +344,7 @@ pub struct AccessPathTiming {
     pub open_ms: f64,
 }
 
+/// Detailed query execution plan returned by [`TraceDbClient::explain`].
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ExplainOutput {
     pub read_epoch: u64,
@@ -342,8 +393,10 @@ pub struct ExplainOutput {
     pub access_path_timings: Vec<AccessPathTiming>,
 }
 
+/// Alias kept for backward compatibility.
 pub type HybridExplain = ExplainOutput;
 
+/// Query result with scored rows and optional explain output.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct QueryOutput {
     pub results: Vec<QueryRow>,
@@ -352,8 +405,10 @@ pub struct QueryOutput {
     pub next_cursor: Option<String>,
 }
 
+/// Alias kept for backward compatibility.
 pub type HybridQueryOutput = QueryOutput;
 
+/// Timing breakdown for a write operation (put/patch/delete).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct WritePathTiming {
     pub total_ms: f64,
@@ -416,30 +471,36 @@ fn default_tombstone() -> String {
     "user_delete".to_string()
 }
 
+/// Errors returned by all SDK operations.
 #[derive(Clone, Debug)]
 pub enum TraceDbClientError {
+    /// The base URL could not be parsed.
     InvalidUrl(String),
-    InvalidConfig {
-        variable: String,
-        message: String,
-    },
+    /// An environment variable or config field was invalid.
+    InvalidConfig { variable: String, message: String },
+    /// A request body could not be serialised or validated.
     InvalidRequest {
         method: String,
         path: String,
         message: String,
     },
+    /// A low-level I/O error (TCP connect, socket, etc.).
     Io(String),
+    /// JSON serialisation/deserialisation failure.
     Json(String),
+    /// The request exceeded the configured timeout.
     Timeout {
         method: String,
         path: String,
         timeout_ms: u64,
     },
+    /// The response body could not be decoded.
     InvalidResponse {
         method: String,
         path: String,
         message: String,
     },
+    /// The server returned a non-2xx HTTP status.
     HttpStatus {
         method: String,
         path: String,
@@ -524,6 +585,8 @@ impl From<serde_json::Error> for TraceDbClientError {
 }
 
 impl TraceDbClientError {
+    /// Attempt to parse the body of an [`HttpStatus`](TraceDbClientError::HttpStatus)
+    /// variant into an [`ErrorResponse`].
     pub fn error_response(&self) -> Option<ErrorResponse> {
         match self {
             Self::HttpStatus { body, .. } => serde_json::from_str::<ErrorResponse>(body).ok(),
@@ -531,6 +594,7 @@ impl TraceDbClientError {
         }
     }
 
+    /// Extract the server error message, if this is an HTTP status error.
     pub fn server_error(&self) -> Option<String> {
         let Self::HttpStatus { body, .. } = self else {
             return None;
@@ -540,6 +604,7 @@ impl TraceDbClientError {
             .map(|response| response.error)
     }
 
+    /// Extract the server error code, if this is an HTTP status error.
     pub fn server_error_code(&self) -> Option<String> {
         let Self::HttpStatus { body, .. } = self else {
             return None;
@@ -550,9 +615,15 @@ impl TraceDbClientError {
     }
 }
 
+/// Configuration for constructing a [`TraceDbClient`] or async clients.
+///
+/// Use the builder-style methods (`with_database`, `with_timeout`, etc.) to
+/// customise after creation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TraceDbClientConfig {
+    /// Base URL of the TraceDB HTTP server (e.g. `http://127.0.0.1:8090`).
     pub url: String,
+    /// Authentication token.
     pub token: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database_id: Option<String>,
@@ -567,6 +638,7 @@ pub struct TraceDbClientConfig {
 }
 
 impl TraceDbClientConfig {
+    /// Create a minimal config from a URL and token.
     pub fn managed(url: impl Into<String>, token: impl Into<String>) -> Self {
         Self {
             url: url.into(),
@@ -579,10 +651,16 @@ impl TraceDbClientConfig {
         }
     }
 
+    /// Read configuration from process environment variables.
+    ///
+    /// Recognised keys: `TRACEDB_URL` (required), `TRACEDB_TOKEN`,
+    /// `TRACEDB_DATABASE_ID`, `TRACEDB_BRANCH_ID`, `TRACEDB_TIMEOUT_MS`,
+    /// `TRACEDB_SAFE_RETRIES`, `TRACEDB_IDEMPOTENCY_RETRIES`.
     pub fn from_env() -> TraceDbClientResult<Self> {
         Self::from_env_vars(env::vars())
     }
 
+    /// Like [`from_env`](Self::from_env) but accepts an explicit iterator of key-value pairs.
     pub fn from_env_vars<K, V, I>(vars: I) -> TraceDbClientResult<Self>
     where
         K: Into<String>,
@@ -633,16 +711,19 @@ impl TraceDbClientConfig {
         Ok(config)
     }
 
+    /// Set the database ID for all requests.
     pub fn with_database(mut self, database_id: impl Into<String>) -> Self {
         self.database_id = Some(database_id.into());
         self
     }
 
+    /// Set the branch ID for all requests.
     pub fn with_branch(mut self, branch_id: impl Into<String>) -> Self {
         self.branch_id = Some(branch_id.into());
         self
     }
 
+    /// Set both database and branch IDs.
     pub fn with_database_branch(
         self,
         database_id: impl Into<String>,
@@ -651,16 +732,19 @@ impl TraceDbClientConfig {
         self.with_database(database_id).with_branch(branch_id)
     }
 
+    /// Override the per-request timeout.
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.request_timeout_ms = timeout_ms(timeout);
         self
     }
 
+    /// Set the number of automatic retries for read-only (safe) requests.
     pub fn with_safe_retries(mut self, retries: u8) -> Self {
         self.safe_retries = retries;
         self
     }
 
+    /// Set the number of automatic retries for idempotent write requests.
     pub fn with_idempotency_retries(mut self, retries: u8) -> Self {
         self.idempotency_retries = retries;
         self
@@ -671,6 +755,7 @@ impl TraceDbClientConfig {
     }
 }
 
+/// Per-request options such as idempotency keys and actor context.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TraceDbRequestOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -680,21 +765,25 @@ pub struct TraceDbRequestOptions {
 }
 
 impl TraceDbRequestOptions {
+    /// Create default (empty) options.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Attach an idempotency key for safe retries of write operations.
     pub fn with_idempotency_key(mut self, key: impl Into<String>) -> Self {
         self.idempotency_key = Some(key.into());
         self
     }
 
+    /// Attach actor context for multi-tenant or audit scenarios.
     pub fn with_actor_context(mut self, actor_context: TraceDbActorContext) -> Self {
         self.actor_context = Some(actor_context);
         self
     }
 }
 
+/// Actor metadata attached to requests for authorization and audit.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TraceDbActorContext {
     pub tenant_id: String,
@@ -709,6 +798,7 @@ pub struct TraceDbActorContext {
 }
 
 impl TraceDbActorContext {
+    /// Create a new actor context from required identity fields.
     pub fn new(
         tenant_id: impl Into<String>,
         database_id: impl Into<String>,
@@ -727,79 +817,103 @@ impl TraceDbActorContext {
         }
     }
 
+    /// Set the policy epoch for consistent reads.
     pub fn with_policy_epoch(mut self, policy_epoch: u64) -> Self {
         self.policy_epoch = policy_epoch;
         self
     }
 
+    /// Set the authorization scopes.
     pub fn with_scopes(mut self, scopes: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.scopes = scopes.into_iter().map(Into::into).collect();
         self
     }
 }
 
+/// Synchronous (blocking) HTTP client for the TraceDB v1 API.
+///
+/// All methods execute a single HTTP request on the current thread.
+/// `TraceDbClient` is `Clone + Send + Sync`; it can be shared across threads
+/// by cloning (each clone opens its own TCP connection).
+///
+/// For async usage, enable the `async` feature and use `TraceDbAsyncClient`.
 #[derive(Clone, Debug)]
-/// Synchronous HTTP client for TraceDB.
 pub struct TraceDbClient {
+    /// The configuration used to build this client.
     pub config: TraceDbClientConfig,
 }
 
+/// Short alias for [`TraceDbClient`].
 pub type TraceDb = TraceDbClient;
 
 impl TraceDbClient {
+    /// Create a client without validating the URL.
     pub fn new(config: TraceDbClientConfig) -> Self {
         Self { config }
     }
 
+    /// Create a client and validate that the URL is parseable.
     pub fn connect(config: TraceDbClientConfig) -> TraceDbClientResult<Self> {
         HttpTarget::parse(&config.url)?;
         Ok(Self::new(config))
     }
 
+    /// GET `/v1/ready` — raw JSON.
     pub fn ready(&self) -> TraceDbClientResult<Value> {
         self.get_json("/v1/ready")
     }
 
+    /// GET `/v1/ready` — typed.
     pub fn ready_typed(&self) -> TraceDbClientResult<ReadyResponse> {
         self.get_typed("/v1/ready")
     }
 
+    /// GET `/v1/health` — raw JSON.
     pub fn health(&self) -> TraceDbClientResult<Value> {
         self.get_json("/v1/health")
     }
 
+    /// GET `/v1/health` — typed.
     pub fn health_typed(&self) -> TraceDbClientResult<HealthResponse> {
         self.get_typed("/v1/health")
     }
 
+    /// GET `/v1/databases` — raw JSON.
     pub fn list_databases(&self) -> TraceDbClientResult<Value> {
         self.get_json("/v1/databases")
     }
 
+    /// GET `/v1/databases` — typed.
     pub fn list_databases_typed(&self) -> TraceDbClientResult<DatabasesResponse> {
         self.get_typed("/v1/databases")
     }
 
+    /// GET `/v1/branches` — raw JSON.
     pub fn list_branches(&self) -> TraceDbClientResult<Value> {
         self.get_json("/v1/branches")
     }
 
+    /// GET `/v1/branches` — typed.
     pub fn list_branches_typed(&self) -> TraceDbClientResult<BranchesResponse> {
         self.get_typed("/v1/branches")
     }
 
+    /// GET `/v1/metrics/public-safe` — raw JSON.
     pub fn public_safe_metrics(&self) -> TraceDbClientResult<Value> {
         self.get_json("/v1/metrics/public-safe")
     }
 
+    /// GET `/v1/metrics/public-safe` — typed.
     pub fn public_safe_metrics_typed(&self) -> TraceDbClientResult<MetricsResponse> {
         self.get_typed("/v1/metrics/public-safe")
     }
 
+    /// POST `/v1/schema/apply` — apply a table schema.
     pub fn apply_schema(&self, schema: &TableSchema) -> TraceDbClientResult<Value> {
         self.post_json("/v1/schema/apply", schema)
     }
 
+    /// POST `/v1/schema/apply` with request options.
     pub fn apply_schema_with_options(
         &self,
         schema: &TableSchema,
@@ -808,10 +922,12 @@ impl TraceDbClient {
         self.post_json_with_options("/v1/schema/apply", schema, options)
     }
 
+    /// POST `/v1/schema/apply` — typed.
     pub fn apply_schema_typed(&self, schema: &TableSchema) -> TraceDbClientResult<EpochResponse> {
         self.post_typed("/v1/schema/apply", schema)
     }
 
+    /// POST `/v1/schema/apply` with request options — typed.
     pub fn apply_schema_typed_with_options(
         &self,
         schema: &TableSchema,
@@ -820,10 +936,12 @@ impl TraceDbClient {
         self.post_typed_with_options("/v1/schema/apply", schema, options)
     }
 
+    /// POST `/v1/records/put` — insert or replace a record.
     pub fn put(&self, record: &RecordInput) -> TraceDbClientResult<Value> {
         self.post_json("/v1/records/put", record)
     }
 
+    /// POST `/v1/records/put` with request options.
     pub fn put_with_options(
         &self,
         record: &RecordInput,
@@ -832,10 +950,12 @@ impl TraceDbClient {
         self.post_json_with_options("/v1/records/put", record, options)
     }
 
+    /// POST `/v1/records/put` — typed.
     pub fn put_typed(&self, record: &RecordInput) -> TraceDbClientResult<EpochResponse> {
         self.post_typed("/v1/records/put", record)
     }
 
+    /// POST `/v1/records/put` with request options — typed.
     pub fn put_typed_with_options(
         &self,
         record: &RecordInput,
@@ -844,10 +964,12 @@ impl TraceDbClient {
         self.post_typed_with_options("/v1/records/put", record, options)
     }
 
+    /// POST `/v1/records/put-batch` — insert multiple records.
     pub fn put_batch(&self, request: &RecordPutBatchRequest) -> TraceDbClientResult<Value> {
         self.post_json("/v1/records/put-batch", request)
     }
 
+    /// POST `/v1/records/put-batch` with request options.
     pub fn put_batch_with_options(
         &self,
         request: &RecordPutBatchRequest,
@@ -856,6 +978,7 @@ impl TraceDbClient {
         self.post_json_with_options("/v1/records/put-batch", request, options)
     }
 
+    /// POST `/v1/records/put-batch` — typed.
     pub fn put_batch_typed(
         &self,
         request: &RecordPutBatchRequest,
@@ -863,6 +986,7 @@ impl TraceDbClient {
         self.post_typed("/v1/records/put-batch", request)
     }
 
+    /// POST `/v1/records/put-batch` with request options — typed.
     pub fn put_batch_typed_with_options(
         &self,
         request: &RecordPutBatchRequest,
@@ -871,10 +995,12 @@ impl TraceDbClient {
         self.post_typed_with_options("/v1/records/put-batch", request, options)
     }
 
+    /// POST `/v1/records/patch` — partially update a record.
     pub fn patch(&self, request: &RecordPatchRequest) -> TraceDbClientResult<Value> {
         self.post_json("/v1/records/patch", request)
     }
 
+    /// POST `/v1/records/patch` with request options.
     pub fn patch_with_options(
         &self,
         request: &RecordPatchRequest,
@@ -883,10 +1009,12 @@ impl TraceDbClient {
         self.post_json_with_options("/v1/records/patch", request, options)
     }
 
+    /// POST `/v1/records/patch` — typed.
     pub fn patch_typed(&self, request: &RecordPatchRequest) -> TraceDbClientResult<EpochResponse> {
         self.post_typed("/v1/records/patch", request)
     }
 
+    /// POST `/v1/records/patch` with request options — typed.
     pub fn patch_typed_with_options(
         &self,
         request: &RecordPatchRequest,
@@ -895,10 +1023,12 @@ impl TraceDbClient {
         self.post_typed_with_options("/v1/records/patch", request, options)
     }
 
+    /// POST `/v1/records/delete` — delete a record.
     pub fn delete(&self, request: &RecordDeleteRequest) -> TraceDbClientResult<Value> {
         self.post_json("/v1/records/delete", request)
     }
 
+    /// POST `/v1/records/delete` with request options.
     pub fn delete_with_options(
         &self,
         request: &RecordDeleteRequest,
@@ -907,6 +1037,7 @@ impl TraceDbClient {
         self.post_json_with_options("/v1/records/delete", request, options)
     }
 
+    /// POST `/v1/records/delete` — typed.
     pub fn delete_typed(
         &self,
         request: &RecordDeleteRequest,
@@ -914,6 +1045,7 @@ impl TraceDbClient {
         self.post_typed("/v1/records/delete", request)
     }
 
+    /// POST `/v1/records/delete` with request options — typed.
     pub fn delete_typed_with_options(
         &self,
         request: &RecordDeleteRequest,
@@ -922,10 +1054,12 @@ impl TraceDbClient {
         self.post_typed_with_options("/v1/records/delete", request, options)
     }
 
+    /// POST `/v1/records/get` — fetch a single record.
     pub fn get(&self, request: &RecordGetRequest) -> TraceDbClientResult<Value> {
         self.post_json("/v1/records/get", request)
     }
 
+    /// POST `/v1/records/get` — typed.
     pub fn get_record_typed(
         &self,
         request: &RecordGetRequest,
@@ -933,31 +1067,38 @@ impl TraceDbClient {
         self.post_typed("/v1/records/get", request)
     }
 
+    /// POST `/v1/records/scan` — paginated table scan.
     pub fn scan(&self, request: &RecordScanRequest) -> TraceDbClientResult<Value> {
         self.post_json("/v1/records/scan", request)
     }
 
+    /// POST `/v1/records/scan` — typed.
     pub fn scan_typed(&self, request: &RecordScanRequest) -> TraceDbClientResult<RecordScanOutput> {
         self.post_typed("/v1/records/scan", request)
     }
 
+    /// POST `/v1/query` — hybrid text/vector/scalar query.
     pub fn query(&self, query: &HybridQuery) -> TraceDbClientResult<Value> {
         self.post_json("/v1/query", query)
     }
 
+    /// POST `/v1/query` — typed.
     pub fn query_typed(&self, query: &HybridQuery) -> TraceDbClientResult<QueryResponse> {
         self.post_typed("/v1/query", query)
     }
 
+    /// POST `/v1/traceql` — execute a TraceQL query string.
     pub fn traceql(&self, query: impl Into<String>) -> TraceDbClientResult<Value> {
         let request = TraceQlQueryRequest::new(query);
         self.traceql_request(&request)
     }
 
+    /// POST `/v1/traceql` with a full request body.
     pub fn traceql_request(&self, request: &TraceQlQueryRequest) -> TraceDbClientResult<Value> {
         self.post_json("/v1/traceql", request)
     }
 
+    /// POST `/v1/traceql` with request options.
     pub fn traceql_request_with_options(
         &self,
         request: &TraceQlQueryRequest,
@@ -966,11 +1107,13 @@ impl TraceDbClient {
         self.post_json_with_options("/v1/traceql", request, options)
     }
 
+    /// POST `/v1/traceql` — typed.
     pub fn traceql_typed(&self, query: impl Into<String>) -> TraceDbClientResult<QueryResponse> {
         let request = TraceQlQueryRequest::new(query);
         self.traceql_request_typed(&request)
     }
 
+    /// POST `/v1/traceql` with a full request body — typed.
     pub fn traceql_request_typed(
         &self,
         request: &TraceQlQueryRequest,
@@ -978,6 +1121,7 @@ impl TraceDbClient {
         self.post_typed("/v1/traceql", request)
     }
 
+    /// POST `/v1/traceql` with request options — typed.
     pub fn traceql_request_typed_with_options(
         &self,
         request: &TraceQlQueryRequest,
@@ -986,15 +1130,18 @@ impl TraceDbClient {
         self.post_typed_with_options("/v1/traceql", request, options)
     }
 
+    /// POST `/v1/graphql` — execute a GraphQL query string.
     pub fn graphql(&self, query: impl Into<String>) -> TraceDbClientResult<Value> {
         let request = GraphQlQueryRequest::new(query);
         self.graphql_request(&request)
     }
 
+    /// POST `/v1/graphql` with a full request body.
     pub fn graphql_request(&self, request: &GraphQlQueryRequest) -> TraceDbClientResult<Value> {
         self.post_json("/v1/graphql", request)
     }
 
+    /// POST `/v1/graphql` with request options.
     pub fn graphql_request_with_options(
         &self,
         request: &GraphQlQueryRequest,
@@ -1003,11 +1150,13 @@ impl TraceDbClient {
         self.post_json_with_options("/v1/graphql", request, options)
     }
 
+    /// POST `/v1/graphql` — typed.
     pub fn graphql_typed(&self, query: impl Into<String>) -> TraceDbClientResult<GraphQlResponse> {
         let request = GraphQlQueryRequest::new(query);
         self.graphql_request_typed(&request)
     }
 
+    /// POST `/v1/graphql` with a full request body — typed.
     pub fn graphql_request_typed(
         &self,
         request: &GraphQlQueryRequest,
@@ -1015,6 +1164,7 @@ impl TraceDbClient {
         self.post_typed("/v1/graphql", request)
     }
 
+    /// POST `/v1/graphql` with request options — typed.
     pub fn graphql_request_typed_with_options(
         &self,
         request: &GraphQlQueryRequest,
@@ -1023,11 +1173,13 @@ impl TraceDbClient {
         self.post_typed_with_options("/v1/graphql", request, options)
     }
 
+    /// POST `/v1/graphql/bounded` — bounded GraphQL query.
     pub fn bounded_graphql(&self, query: impl Into<String>) -> TraceDbClientResult<Value> {
         let request = GraphQlQueryRequest::new(query);
         self.bounded_graphql_request(&request)
     }
 
+    /// POST `/v1/graphql/bounded` with a full request body.
     pub fn bounded_graphql_request(
         &self,
         request: &GraphQlQueryRequest,
@@ -1035,6 +1187,7 @@ impl TraceDbClient {
         self.post_json("/v1/graphql/bounded", request)
     }
 
+    /// POST `/v1/graphql/bounded` — typed.
     pub fn bounded_graphql_typed(
         &self,
         query: impl Into<String>,
@@ -1043,6 +1196,7 @@ impl TraceDbClient {
         self.bounded_graphql_request_typed(&request)
     }
 
+    /// POST `/v1/graphql/bounded` with a full request body — typed.
     pub fn bounded_graphql_request_typed(
         &self,
         request: &GraphQlQueryRequest,
@@ -1050,26 +1204,32 @@ impl TraceDbClient {
         self.post_typed("/v1/graphql/bounded", request)
     }
 
+    /// GET `/v1/graphql/schema` — fetch the GraphQL schema.
     pub fn graphql_schema(&self) -> TraceDbClientResult<Value> {
         self.get_json("/v1/graphql/schema")
     }
 
+    /// GET `/v1/graphql/schema` — typed.
     pub fn graphql_schema_typed(&self) -> TraceDbClientResult<GraphQlSchemaResponse> {
         self.get_typed("/v1/graphql/schema")
     }
 
+    /// POST `/v1/explain` — get the query execution plan.
     pub fn explain(&self, query: &HybridQuery) -> TraceDbClientResult<Value> {
         self.post_json("/v1/explain", query)
     }
 
+    /// POST `/v1/explain` — typed.
     pub fn explain_typed(&self, query: &HybridQuery) -> TraceDbClientResult<HybridExplain> {
         self.post_typed("/v1/explain", query)
     }
 
+    /// POST `/v1/admin/compact` — trigger compaction.
     pub fn compact(&self) -> TraceDbClientResult<Value> {
         self.post_json("/v1/admin/compact", &json!({}))
     }
 
+    /// POST `/v1/admin/compact` with request options.
     pub fn compact_with_options(
         &self,
         options: &TraceDbRequestOptions,
@@ -1077,10 +1237,12 @@ impl TraceDbClient {
         self.post_json_with_options("/v1/admin/compact", &json!({}), options)
     }
 
+    /// POST `/v1/admin/compact` — typed.
     pub fn compact_typed(&self) -> TraceDbClientResult<CompactResponse> {
         self.post_typed("/v1/admin/compact", &json!({}))
     }
 
+    /// POST `/v1/admin/compact` with request options — typed.
     pub fn compact_typed_with_options(
         &self,
         options: &TraceDbRequestOptions,
@@ -1088,18 +1250,22 @@ impl TraceDbClient {
         self.post_typed_with_options("/v1/admin/compact", &json!({}), options)
     }
 
+    /// GET `/v1/admin/jobs` — list admin jobs.
     pub fn list_admin_jobs(&self) -> TraceDbClientResult<Value> {
         self.get_json("/v1/admin/jobs")
     }
 
+    /// GET `/v1/admin/jobs` — typed.
     pub fn list_admin_jobs_typed(&self) -> TraceDbClientResult<JobsResponse> {
         self.get_typed("/v1/admin/jobs")
     }
 
+    /// POST `/v1/admin/snapshot` — create a snapshot.
     pub fn snapshot(&self, request: &SnapshotRequest) -> TraceDbClientResult<Value> {
         self.post_json("/v1/admin/snapshot", request)
     }
 
+    /// POST `/v1/admin/snapshot` with request options.
     pub fn snapshot_with_options(
         &self,
         request: &SnapshotRequest,
@@ -1108,6 +1274,7 @@ impl TraceDbClient {
         self.post_json_with_options("/v1/admin/snapshot", request, options)
     }
 
+    /// POST `/v1/admin/snapshot` — typed.
     pub fn snapshot_typed(
         &self,
         request: &SnapshotRequest,
@@ -1115,6 +1282,7 @@ impl TraceDbClient {
         self.post_typed("/v1/admin/snapshot", request)
     }
 
+    /// POST `/v1/admin/snapshot` with request options — typed.
     pub fn snapshot_typed_with_options(
         &self,
         request: &SnapshotRequest,
@@ -1123,10 +1291,12 @@ impl TraceDbClient {
         self.post_typed_with_options("/v1/admin/snapshot", request, options)
     }
 
+    /// POST `/v1/admin/restore` — restore from a snapshot.
     pub fn restore(&self, request: &RestoreRequest) -> TraceDbClientResult<Value> {
         self.post_json("/v1/admin/restore", request)
     }
 
+    /// POST `/v1/admin/restore` with request options.
     pub fn restore_with_options(
         &self,
         request: &RestoreRequest,
@@ -1135,10 +1305,12 @@ impl TraceDbClient {
         self.post_json_with_options("/v1/admin/restore", request, options)
     }
 
+    /// POST `/v1/admin/restore` — typed.
     pub fn restore_typed(&self, request: &RestoreRequest) -> TraceDbClientResult<RestoreResponse> {
         self.post_typed("/v1/admin/restore", request)
     }
 
+    /// POST `/v1/admin/restore` with request options — typed.
     pub fn restore_typed_with_options(
         &self,
         request: &RestoreRequest,
@@ -1147,6 +1319,9 @@ impl TraceDbClient {
         self.post_typed_with_options("/v1/admin/restore", request, options)
     }
 
+    /// Send a raw HTTP request and return the JSON response.
+    ///
+    /// This is the low-level escape hatch used by the typed methods above.
     pub fn request_json(
         &self,
         method: &str,
@@ -1156,6 +1331,7 @@ impl TraceDbClient {
         self.request_json_with_options(method, path, body, &TraceDbRequestOptions::default())
     }
 
+    /// Like [`request_json`](Self::request_json) with per-request options and automatic retries.
     pub fn request_json_with_options(
         &self,
         method: &str,
@@ -1248,6 +1424,7 @@ impl TraceDbClient {
         parse_response(method, &request_path, &response)
     }
 
+    /// Return a [`QueryBuilder`] scoped to the given table.
     pub fn table(&self, table: impl Into<String>) -> TableHandle {
         QueryBuilder {
             client_config: Some(self.config.clone()),
@@ -1378,14 +1555,21 @@ impl TraceDbClient {
     }
 }
 
+/// Asynchronous HTTP client for the TraceDB v1 API.
+///
+/// Requires the `async` feature (enabled by default). Uses `reqwest` under
+/// the hood. `TraceDbAsyncClient` is `Clone + Send + Sync` and can be freely
+/// shared across Tokio tasks.
+#[cfg(feature = "async")]
 #[derive(Clone, Debug)]
-/// Asynchronous HTTP client for TraceDB.
 pub struct TraceDbAsyncClient {
     inner: TraceDbClient,
     http_client: reqwest::Client,
 }
 
+#[cfg(feature = "async")]
 impl TraceDbAsyncClient {
+    /// Create an async client from config.
     pub fn new(config: TraceDbClientConfig) -> Self {
         let http_client = reqwest::Client::builder()
             .pool_max_idle_per_host(16)
@@ -1397,6 +1581,7 @@ impl TraceDbAsyncClient {
         }
     }
 
+    /// Wrap an existing blocking [`TraceDbClient`].
     pub fn from_blocking(client: TraceDbClient) -> Self {
         let http_client = reqwest::Client::builder()
             .pool_max_idle_per_host(16)
@@ -1408,10 +1593,12 @@ impl TraceDbAsyncClient {
         }
     }
 
+    /// Access the underlying blocking client.
     pub fn blocking_client(&self) -> &TraceDbClient {
         &self.inner
     }
 
+    /// Send a raw async HTTP request and return JSON.
     pub async fn request_json(
         &self,
         method: &str,
@@ -1422,6 +1609,7 @@ impl TraceDbAsyncClient {
             .await
     }
 
+    /// Like [`request_json`](Self::request_json) with options and retries.
     pub async fn request_json_with_options(
         &self,
         method: &str,
@@ -1442,38 +1630,47 @@ impl TraceDbAsyncClient {
         unreachable!("request attempts should be at least one")
     }
 
+    /// GET `/v1/ready` — raw JSON.
     pub async fn ready(&self) -> TraceDbClientResult<Value> {
         self.request_json("GET", "/v1/ready", None).await
     }
 
+    /// GET `/v1/ready` — typed.
     pub async fn ready_typed(&self) -> TraceDbClientResult<ReadyResponse> {
         self.get_typed("/v1/ready").await
     }
 
+    /// GET `/v1/health` — raw JSON.
     pub async fn health(&self) -> TraceDbClientResult<Value> {
         self.request_json("GET", "/v1/health", None).await
     }
 
+    /// GET `/v1/health` — typed.
     pub async fn health_typed(&self) -> TraceDbClientResult<HealthResponse> {
         self.get_typed("/v1/health").await
     }
 
+    /// GET `/v1/databases` — typed.
     pub async fn list_databases_typed(&self) -> TraceDbClientResult<DatabasesResponse> {
         self.get_typed("/v1/databases").await
     }
 
+    /// GET `/v1/branches` — typed.
     pub async fn list_branches_typed(&self) -> TraceDbClientResult<BranchesResponse> {
         self.get_typed("/v1/branches").await
     }
 
+    /// GET `/v1/metrics/public-safe` — typed.
     pub async fn public_safe_metrics_typed(&self) -> TraceDbClientResult<MetricsResponse> {
         self.get_typed("/v1/metrics/public-safe").await
     }
 
+    /// GET `/v1/admin/jobs` — typed.
     pub async fn list_admin_jobs_typed(&self) -> TraceDbClientResult<JobsResponse> {
         self.get_typed("/v1/admin/jobs").await
     }
 
+    /// POST `/v1/schema/apply` — typed.
     pub async fn apply_schema_typed(
         &self,
         schema: &TableSchema,
@@ -1481,6 +1678,7 @@ impl TraceDbAsyncClient {
         self.post_typed("/v1/schema/apply", schema).await
     }
 
+    /// POST `/v1/schema/apply` with options — typed.
     pub async fn apply_schema_typed_with_options(
         &self,
         schema: &TableSchema,
@@ -1490,10 +1688,12 @@ impl TraceDbAsyncClient {
             .await
     }
 
+    /// POST `/v1/records/put` — typed.
     pub async fn put_typed(&self, record: &RecordInput) -> TraceDbClientResult<EpochResponse> {
         self.post_typed("/v1/records/put", record).await
     }
 
+    /// POST `/v1/records/put` with options — typed.
     pub async fn put_typed_with_options(
         &self,
         record: &RecordInput,
@@ -1503,6 +1703,7 @@ impl TraceDbAsyncClient {
             .await
     }
 
+    /// POST `/v1/records/put-batch` — typed.
     pub async fn put_batch_typed(
         &self,
         request: &RecordPutBatchRequest,
@@ -1510,6 +1711,7 @@ impl TraceDbAsyncClient {
         self.post_typed("/v1/records/put-batch", request).await
     }
 
+    /// POST `/v1/records/put-batch` with options — typed.
     pub async fn put_batch_typed_with_options(
         &self,
         request: &RecordPutBatchRequest,
@@ -1519,6 +1721,7 @@ impl TraceDbAsyncClient {
             .await
     }
 
+    /// POST `/v1/records/patch` — typed.
     pub async fn patch_typed(
         &self,
         request: &RecordPatchRequest,
@@ -1526,6 +1729,7 @@ impl TraceDbAsyncClient {
         self.post_typed("/v1/records/patch", request).await
     }
 
+    /// POST `/v1/records/patch` with options — typed.
     pub async fn patch_typed_with_options(
         &self,
         request: &RecordPatchRequest,
@@ -1535,6 +1739,7 @@ impl TraceDbAsyncClient {
             .await
     }
 
+    /// POST `/v1/records/delete` — typed.
     pub async fn delete_typed(
         &self,
         request: &RecordDeleteRequest,
@@ -1542,6 +1747,7 @@ impl TraceDbAsyncClient {
         self.post_typed("/v1/records/delete", request).await
     }
 
+    /// POST `/v1/records/delete` with options — typed.
     pub async fn delete_typed_with_options(
         &self,
         request: &RecordDeleteRequest,
@@ -1551,6 +1757,7 @@ impl TraceDbAsyncClient {
             .await
     }
 
+    /// POST `/v1/records/get` — typed.
     pub async fn get_record_typed(
         &self,
         request: &RecordGetRequest,
@@ -1558,6 +1765,7 @@ impl TraceDbAsyncClient {
         self.post_typed("/v1/records/get", request).await
     }
 
+    /// POST `/v1/records/scan` — typed.
     pub async fn scan_typed(
         &self,
         request: &RecordScanRequest,
@@ -1565,10 +1773,12 @@ impl TraceDbAsyncClient {
         self.post_typed("/v1/records/scan", request).await
     }
 
+    /// POST `/v1/query` — typed.
     pub async fn query_typed(&self, query: &HybridQuery) -> TraceDbClientResult<QueryResponse> {
         self.post_typed("/v1/query", query).await
     }
 
+    /// POST `/v1/traceql` — typed.
     pub async fn traceql_typed(
         &self,
         query: impl Into<String>,
@@ -1577,6 +1787,7 @@ impl TraceDbAsyncClient {
         self.post_typed("/v1/traceql", &request).await
     }
 
+    /// POST `/v1/graphql` — typed.
     pub async fn graphql_typed(
         &self,
         query: impl Into<String>,
@@ -1585,6 +1796,7 @@ impl TraceDbAsyncClient {
         self.post_typed("/v1/graphql", &request).await
     }
 
+    /// POST `/v1/graphql/bounded` — typed.
     pub async fn bounded_graphql_typed(
         &self,
         query: impl Into<String>,
@@ -1593,18 +1805,22 @@ impl TraceDbAsyncClient {
         self.post_typed("/v1/graphql/bounded", &request).await
     }
 
+    /// GET `/v1/graphql/schema` — typed.
     pub async fn graphql_schema_typed(&self) -> TraceDbClientResult<GraphQlSchemaResponse> {
         self.get_typed("/v1/graphql/schema").await
     }
 
+    /// POST `/v1/explain` — typed.
     pub async fn explain_typed(&self, query: &HybridQuery) -> TraceDbClientResult<HybridExplain> {
         self.post_typed("/v1/explain", query).await
     }
 
+    /// POST `/v1/admin/compact` — typed.
     pub async fn compact_typed(&self) -> TraceDbClientResult<CompactResponse> {
         self.post_typed("/v1/admin/compact", &json!({})).await
     }
 
+    /// POST `/v1/admin/compact` with options — typed.
     pub async fn compact_typed_with_options(
         &self,
         options: &TraceDbRequestOptions,
@@ -1613,6 +1829,7 @@ impl TraceDbAsyncClient {
             .await
     }
 
+    /// POST `/v1/admin/snapshot` — typed.
     pub async fn snapshot_typed(
         &self,
         request: &SnapshotRequest,
@@ -1620,6 +1837,7 @@ impl TraceDbAsyncClient {
         self.post_typed("/v1/admin/snapshot", request).await
     }
 
+    /// POST `/v1/admin/snapshot` with options — typed.
     pub async fn snapshot_typed_with_options(
         &self,
         request: &SnapshotRequest,
@@ -1629,6 +1847,7 @@ impl TraceDbAsyncClient {
             .await
     }
 
+    /// POST `/v1/admin/restore` — typed.
     pub async fn restore_typed(
         &self,
         request: &RestoreRequest,
@@ -1636,6 +1855,7 @@ impl TraceDbAsyncClient {
         self.post_typed("/v1/admin/restore", request).await
     }
 
+    /// POST `/v1/admin/restore` with options — typed.
     pub async fn restore_typed_with_options(
         &self,
         request: &RestoreRequest,
@@ -1752,6 +1972,7 @@ impl TraceDbAsyncClient {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Response from [`TraceDbClient::ready_typed`].
 pub struct ReadyResponse {
     #[serde(default)]
     pub ok: Option<bool>,
@@ -1779,6 +2000,7 @@ pub struct ReadyResponse {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Response from [`TraceDbClient::health_typed`].
 pub struct HealthResponse {
     pub ok: bool,
     #[serde(default)]
@@ -1792,6 +2014,7 @@ pub struct HealthResponse {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Summary of a single database.
 pub struct DatabaseSummary {
     pub database_id: String,
     #[serde(default)]
@@ -1807,6 +2030,7 @@ pub struct DatabaseSummary {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Response from [`TraceDbClient::list_databases_typed`].
 pub struct DatabasesResponse {
     pub databases: Vec<DatabaseSummary>,
     #[serde(default)]
@@ -1816,6 +2040,7 @@ pub struct DatabasesResponse {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Summary of a single branch.
 pub struct BranchSummary {
     pub branch_id: String,
     #[serde(default)]
@@ -1831,6 +2056,7 @@ pub struct BranchSummary {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Response from [`TraceDbClient::list_branches_typed`].
 pub struct BranchesResponse {
     pub branches: Vec<BranchSummary>,
     #[serde(default)]
@@ -1838,6 +2064,7 @@ pub struct BranchesResponse {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Response from [`TraceDbClient::public_safe_metrics_typed`].
 pub struct MetricsResponse {
     #[serde(default)]
     pub gateway: Option<bool>,
@@ -1866,6 +2093,7 @@ pub struct MetricsResponse {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// Standard error body returned by the server.
 pub struct ErrorResponse {
     pub error: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1873,11 +2101,13 @@ pub struct ErrorResponse {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// Response containing the resulting epoch after a write.
 pub struct EpochResponse {
     pub epoch: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Response from [`TraceDbClient::put_batch_typed`].
 pub struct PutBatchResponse {
     pub epoch: u64,
     pub record_count: usize,
@@ -1886,17 +2116,20 @@ pub struct PutBatchResponse {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// Response from [`TraceDbClient::delete_typed`].
 pub struct DeleteResponse {
     pub deleted: bool,
     pub epoch: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Response from [`TraceDbClient::get_record_typed`].
 pub struct GetRecordResponse {
     pub record: Option<RecordOutput>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Response from [`TraceDbClient::query_typed`] and related query methods.
 pub struct QueryResponse {
     pub results: Vec<HybridQueryRow>,
     #[serde(default)]
@@ -1906,11 +2139,13 @@ pub struct QueryResponse {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// Request body for TraceQL endpoints.
 pub struct TraceQlQueryRequest {
     pub query: String,
 }
 
 impl TraceQlQueryRequest {
+    /// Create a request from a TraceQL query string.
     pub fn new(query: impl Into<String>) -> Self {
         Self {
             query: query.into(),
@@ -1926,42 +2161,52 @@ impl TraceQlQueryRequest {
         })
     }
 
+    /// Create a TraceQL schema apply command.
     pub fn schema_apply(schema: &TableSchema) -> TraceDbClientResult<Self> {
         Self::command("SCHEMA APPLY", schema)
     }
 
+    /// Create a TraceQL record put command.
     pub fn put(record: &RecordInput) -> TraceDbClientResult<Self> {
         Self::command("RECORD PUT", record)
     }
 
+    /// Create a TraceQL batch put command.
     pub fn batch(request: &RecordPutBatchRequest) -> TraceDbClientResult<Self> {
         Self::command("RECORD BATCH", request)
     }
 
+    /// Create a TraceQL patch command.
     pub fn patch(request: &RecordPatchRequest) -> TraceDbClientResult<Self> {
         Self::command("RECORD PATCH", request)
     }
 
+    /// Create a TraceQL delete command.
     pub fn delete(request: &RecordDeleteRequest) -> TraceDbClientResult<Self> {
         Self::command("RECORD DELETE", request)
     }
 
+    /// Create a TraceQL get command.
     pub fn get(request: &RecordGetRequest) -> TraceDbClientResult<Self> {
         Self::command("RECORD GET", request)
     }
 
+    /// Create a TraceQL scan command.
     pub fn scan(request: &RecordScanRequest) -> TraceDbClientResult<Self> {
         Self::command("RECORD SCAN", request)
     }
 
+    /// Create a TraceQL query command.
     pub fn query(query: &HybridQuery) -> TraceDbClientResult<Self> {
         Self::command("QUERY", query)
     }
 
+    /// Create a TraceQL explain command.
     pub fn explain(query: &HybridQuery) -> TraceDbClientResult<Self> {
         Self::command("EXPLAIN", query)
     }
 
+    /// Create a TraceQL jobs list command.
     pub fn jobs_list() -> Self {
         Self {
             query: "JOBS LIST".to_string(),
@@ -1970,6 +2215,7 @@ impl TraceQlQueryRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Request body for GraphQL endpoints.
 pub struct GraphQlQueryRequest {
     pub query: String,
     #[serde(default, skip_serializing_if = "Value::is_null")]
@@ -1983,6 +2229,7 @@ pub struct GraphQlQueryRequest {
 }
 
 impl GraphQlQueryRequest {
+    /// Create a request from a GraphQL query string.
     pub fn new(query: impl Into<String>) -> Self {
         Self {
             query: query.into(),
@@ -1991,11 +2238,13 @@ impl GraphQlQueryRequest {
         }
     }
 
+    /// Attach GraphQL variables.
     pub fn with_variables(mut self, variables: Value) -> Self {
         self.variables = variables;
         self
     }
 
+    /// Attach a named operation.
     pub fn with_operation_name(mut self, operation_name: impl Into<String>) -> Self {
         self.operation_name = Some(operation_name.into());
         self
@@ -2003,6 +2252,7 @@ impl GraphQlQueryRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Response from GraphQL endpoints.
 pub struct GraphQlResponse {
     #[serde(default)]
     pub data: Value,
@@ -2011,6 +2261,7 @@ pub struct GraphQlResponse {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// A single error from a [`GraphQlResponse`].
 pub struct GraphQlError {
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2020,6 +2271,7 @@ pub struct GraphQlError {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// Response from [`TraceDbClient::graphql_schema_typed`].
 pub struct GraphQlSchemaResponse {
     pub adapter: String,
     pub schema: String,
@@ -2029,16 +2281,19 @@ pub struct GraphQlSchemaResponse {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// Response from [`TraceDbClient::compact_typed`].
 pub struct CompactResponse {
     pub compacted: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// Request body for [`TraceDbClient::snapshot`].
 pub struct SnapshotRequest {
     pub target: String,
 }
 
 impl SnapshotRequest {
+    /// Create a snapshot request for the given target.
     pub fn new(target: impl Into<String>) -> Self {
         Self {
             target: target.into(),
@@ -2047,12 +2302,14 @@ impl SnapshotRequest {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// Response from [`TraceDbClient::snapshot_typed`].
 pub struct SnapshotResponse {
     pub snapshot: bool,
     pub target: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// Request body for [`TraceDbClient::restore`].
 pub struct RestoreRequest {
     pub source: String,
     pub target: String,
@@ -2061,6 +2318,7 @@ pub struct RestoreRequest {
 }
 
 impl RestoreRequest {
+    /// Create a restore request from source to target.
     pub fn new(source: impl Into<String>, target: impl Into<String>) -> Self {
         Self {
             source: source.into(),
@@ -2069,6 +2327,7 @@ impl RestoreRequest {
         }
     }
 
+    /// Attach a record verification step to the restore.
     pub fn verify_record(mut self, request: RecordGetRequest) -> Self {
         self.verify_record = Some(request);
         self
@@ -2076,6 +2335,7 @@ impl RestoreRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Response from [`TraceDbClient::restore_typed`].
 pub struct RestoreResponse {
     pub restored: bool,
     pub source: String,
@@ -2085,6 +2345,7 @@ pub struct RestoreResponse {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Verification result included in [`RestoreResponse`].
 pub struct RestoreVerification {
     pub status: String,
     pub record_visible: bool,
@@ -2095,12 +2356,14 @@ pub struct RestoreVerification {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// A single admin job entry.
 pub struct AdminJob {
     pub queue: String,
     pub state: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// Response from [`TraceDbClient::list_admin_jobs_typed`].
 pub struct JobsResponse {
     pub jobs: Vec<AdminJob>,
 }
@@ -2334,6 +2597,7 @@ fn map_request_io_error(
     }
 }
 
+#[cfg(feature = "async")]
 fn map_reqwest_error(
     method: &str,
     path: &str,
@@ -2572,12 +2836,14 @@ fn decode_typed<T: for<'de> Deserialize<'de>>(
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// A record input scoped to a single table (no table field needed).
 pub struct TableRecordInput {
     pub id: String,
     pub fields: Map<String, Value>,
 }
 
 impl TableRecordInput {
+    /// Create a table-scoped record with the given ID and fields.
     pub fn new(id: impl Into<String>, fields: Map<String, Value>) -> Self {
         Self {
             id: id.into(),
@@ -2586,8 +2852,10 @@ impl TableRecordInput {
     }
 }
 
+/// Fluent builder for hybrid queries and record operations on a single table.
+///
+/// Obtain one via [`TraceDbClient::table`]. Each method returns `Self` for chaining.
 #[derive(Clone, Debug)]
-/// Fluent builder for TraceDB hybrid queries.
 pub struct QueryBuilder {
     client_config: Option<TraceDbClientConfig>,
     table: String,
@@ -2603,60 +2871,72 @@ pub struct QueryBuilder {
     explain: bool,
 }
 
+/// Alias for [`QueryBuilder`].
 pub type TableHandle = QueryBuilder;
 
 impl QueryBuilder {
+    /// Set the tenant ID for all operations on this builder.
     pub fn tenant(mut self, tenant_id: impl Into<String>) -> Self {
         self.tenant_id = Some(tenant_id.into());
         self
     }
 
+    /// Add a scalar equality filter.
     pub fn where_eq(mut self, field: impl Into<String>, value: impl Into<Value>) -> Self {
         self.scalar_eq.insert(field.into(), value.into());
         self
     }
 
+    /// Add a text match clause.
     pub fn match_text(mut self, field: impl Into<String>, query: impl Into<String>) -> Self {
         self.text_field = Some(field.into());
         self.text_query = Some(query.into());
         self
     }
 
+    /// Add a vector nearest-neighbour clause.
     pub fn near(mut self, field: impl Into<String>, vector: Vec<f32>) -> Self {
         self.vector_field = Some(field.into());
         self.vector = Some(vector);
         self
     }
 
+    /// Override the feature freshness mode.
     pub fn freshness(mut self, freshness: FeatureFreshnessMode) -> Self {
         self.freshness = freshness;
         self
     }
 
+    /// Set the maximum number of results.
     pub fn limit(mut self, limit: usize) -> Self {
         self.limit = limit;
         self
     }
 
+    /// Set the pagination cursor.
     pub fn cursor(mut self, cursor: impl Into<String>) -> Self {
         self.cursor = Some(cursor.into());
         self
     }
 
+    /// Enable explain output on the query.
     pub fn with_explain(mut self) -> Self {
         self.explain = true;
         self
     }
 
+    /// Clone this builder (useful for re-using a base query).
     pub fn query(&self) -> Self {
         self.clone()
     }
 
+    /// Disable explain output.
     pub fn without_explain(mut self) -> Self {
         self.explain = false;
         self
     }
 
+    /// Insert a single record into this table.
     pub fn insert(
         &self,
         id: impl Into<String>,
@@ -2666,6 +2946,7 @@ impl QueryBuilder {
         self.insert_with_options(id, fields, &options)
     }
 
+    /// Insert a single record with request options.
     pub fn insert_with_options(
         &self,
         id: impl Into<String>,
@@ -2679,6 +2960,7 @@ impl QueryBuilder {
             .put_typed_with_options(&record, options)
     }
 
+    /// Insert multiple records into this table.
     pub fn insert_batch(
         &self,
         records: Vec<TableRecordInput>,
@@ -2687,6 +2969,7 @@ impl QueryBuilder {
         self.insert_batch_with_options(records, &options)
     }
 
+    /// Insert multiple records with request options.
     pub fn insert_batch_with_options(
         &self,
         records: Vec<TableRecordInput>,
@@ -2703,6 +2986,7 @@ impl QueryBuilder {
             .put_batch_typed_with_options(&request, options)
     }
 
+    /// Insert rows from raw field maps (auto-generated IDs).
     pub fn insert_rows(
         &self,
         rows: Vec<Map<String, Value>>,
@@ -2711,6 +2995,7 @@ impl QueryBuilder {
         self.insert_rows_with_id_field_and_options(rows, "id", &options)
     }
 
+    /// Insert rows from raw field maps with request options.
     pub fn insert_rows_with_options(
         &self,
         rows: Vec<Map<String, Value>>,
@@ -2719,6 +3004,7 @@ impl QueryBuilder {
         self.insert_rows_with_id_field_and_options(rows, "id", options)
     }
 
+    /// Insert rows using a specific field as the record ID.
     pub fn insert_rows_with_id_field(
         &self,
         rows: Vec<Map<String, Value>>,
@@ -2728,6 +3014,7 @@ impl QueryBuilder {
         self.insert_rows_with_id_field_and_options(rows, id_field, &options)
     }
 
+    /// Insert rows with an ID field and request options.
     pub fn insert_rows_with_id_field_and_options(
         &self,
         rows: Vec<Map<String, Value>>,
@@ -2754,6 +3041,7 @@ impl QueryBuilder {
             .put_batch_typed_with_options(&request, options)
     }
 
+    /// Patch a record in this table.
     pub fn patch_record(
         &self,
         id: impl Into<String>,
@@ -2763,6 +3051,7 @@ impl QueryBuilder {
         self.patch_record_with_options(id, fields, &options)
     }
 
+    /// Patch a record with request options.
     pub fn patch_record_with_options(
         &self,
         id: impl Into<String>,
@@ -2780,6 +3069,7 @@ impl QueryBuilder {
             .patch_typed_with_options(&request, options)
     }
 
+    /// Get a record from this table.
     pub fn get_record(&self, id: impl Into<String>) -> TraceDbClientResult<GetRecordResponse> {
         let path = "/v1/records/get";
         let request = RecordGetRequest::new(
@@ -2790,6 +3080,7 @@ impl QueryBuilder {
         self.client("POST", path)?.get_record_typed(&request)
     }
 
+    /// Scan records in this table.
     pub fn scan_typed(&self) -> TraceDbClientResult<RecordScanOutput> {
         let path = "/v1/records/scan";
         let request =
@@ -2803,11 +3094,13 @@ impl QueryBuilder {
         self.client("POST", path)?.scan_typed(&request)
     }
 
+    /// Delete a record from this table.
     pub fn delete_record(&self, id: impl Into<String>) -> TraceDbClientResult<DeleteResponse> {
         let options = TraceDbRequestOptions::default();
         self.delete_record_with_options(id, &options)
     }
 
+    /// Delete a record with request options.
     pub fn delete_record_with_options(
         &self,
         id: impl Into<String>,
@@ -2823,6 +3116,7 @@ impl QueryBuilder {
             .delete_typed_with_options(&request, options)
     }
 
+    /// Execute the built hybrid query.
     pub fn all(self) -> TraceDbClientResult<QueryResponse> {
         let path = "/v1/query";
         let client = self.client("POST", path)?;
@@ -2830,6 +3124,7 @@ impl QueryBuilder {
         client.query_typed(&query)
     }
 
+    /// Execute the built query as an explain request.
     pub fn explain_plan(self) -> TraceDbClientResult<HybridExplain> {
         let path = "/v1/explain";
         let client = self.client("POST", path)?;
@@ -2837,6 +3132,7 @@ impl QueryBuilder {
         client.explain_typed(&query)
     }
 
+    /// Build the [`TraceQueryRequest`] without executing it.
     pub fn build(self) -> TraceQueryRequest {
         let freshness = match self.freshness {
             FeatureFreshnessMode::Strict => "Strict",
@@ -2860,6 +3156,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Insert a record (alias for [`insert`](Self::insert)).
     pub fn put(self, id: impl Into<String>) -> RecordPutBuilder {
         RecordPutBuilder {
             table: self.table,
@@ -2869,6 +3166,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Scan records in this table (alias for [`scan_typed`](Self::scan_typed)).
     pub fn scan(self) -> RecordScanBuilder {
         RecordScanBuilder {
             table: self.table,
@@ -2878,6 +3176,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Delete a record (alias for [`delete_record`](Self::delete_record)).
     pub fn delete(self, id: impl Into<String>) -> RecordDeleteBuilder {
         RecordDeleteBuilder {
             table: self.table,
@@ -2978,6 +3277,7 @@ impl QueryBuilder {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Serializable form of a query built by [`QueryBuilder::build`].
 pub struct TraceQueryRequest {
     pub table: String,
     pub tenant_id: String,
@@ -2995,12 +3295,14 @@ pub struct TraceQueryRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Decoded HTTP request produced by the query builder.
 pub struct TraceHttpRequest {
     pub path: String,
     pub body: Value,
 }
 
 #[derive(Clone, Debug)]
+/// Builder for a single-record put, created by [`QueryBuilder::put`].
 pub struct RecordPutBuilder {
     table: String,
     tenant_id: String,
@@ -3009,11 +3311,13 @@ pub struct RecordPutBuilder {
 }
 
 impl RecordPutBuilder {
-    pub fn field(mut self, key: impl Into<String>, value: Value) -> Self {
-        self.fields.insert(key.into(), value);
+    /// Add a single field to the record being built.
+    pub fn field(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
+        self.fields.insert(key.into(), value.into());
         self
     }
 
+    /// Add multiple fields at once.
     pub fn fields(mut self, fields: Map<String, Value>) -> Self {
         self.fields.extend(fields);
         self
@@ -3039,6 +3343,7 @@ impl RecordPutBuilder {
 }
 
 #[derive(Clone, Debug)]
+/// Builder for a table scan, created by [`QueryBuilder::scan`].
 pub struct RecordScanBuilder {
     table: String,
     tenant_id: String,
@@ -3047,16 +3352,19 @@ pub struct RecordScanBuilder {
 }
 
 impl RecordScanBuilder {
+    /// Set the maximum number of records to return.
     pub fn limit(mut self, limit: usize) -> Self {
         self.limit = limit;
         self
     }
 
+    /// Set the pagination cursor.
     pub fn cursor(mut self, cursor: impl Into<String>) -> Self {
         self.cursor = Some(cursor.into());
         self
     }
 
+    /// Execute the scan.
     pub fn build(self) -> TraceHttpRequest {
         let mut body = json!({
             "table": self.table,
@@ -3074,6 +3382,7 @@ impl RecordScanBuilder {
 }
 
 #[derive(Clone, Debug)]
+/// Builder for a record delete, created by [`QueryBuilder::delete`].
 pub struct RecordDeleteBuilder {
     table: String,
     tenant_id: String,
@@ -3082,11 +3391,13 @@ pub struct RecordDeleteBuilder {
 }
 
 impl RecordDeleteBuilder {
+    /// Set a custom tombstone value.
     pub fn tombstone(mut self, tombstone: impl Into<String>) -> Self {
         self.tombstone = tombstone.into();
         self
     }
 
+    /// Execute the delete.
     pub fn build(self) -> TraceHttpRequest {
         TraceHttpRequest {
             path: "/v1/records/delete".to_string(),
