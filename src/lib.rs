@@ -619,11 +619,12 @@ impl TraceDbClientError {
 ///
 /// Use the builder-style methods (`with_database`, `with_timeout`, etc.) to
 /// customise after creation.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TraceDbClientConfig {
     /// Base URL of the TraceDB HTTP server (e.g. `http://127.0.0.1:8090`).
     pub url: String,
     /// Authentication token.
+    #[serde(skip_serializing)]
     pub token: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database_id: Option<String>,
@@ -635,6 +636,20 @@ pub struct TraceDbClientConfig {
     pub safe_retries: u8,
     #[serde(default)]
     pub idempotency_retries: u8,
+}
+
+impl std::fmt::Debug for TraceDbClientConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TraceDbClientConfig")
+            .field("url", &self.url)
+            .field("token", &"[REDACTED]")
+            .field("database_id", &self.database_id)
+            .field("branch_id", &self.branch_id)
+            .field("request_timeout_ms", &self.request_timeout_ms)
+            .field("safe_retries", &self.safe_retries)
+            .field("idempotency_retries", &self.idempotency_retries)
+            .finish()
+    }
 }
 
 impl TraceDbClientConfig {
