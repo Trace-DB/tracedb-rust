@@ -368,7 +368,6 @@ impl From<&QuickstartArgs> for QuickstartFailureContext {
     }
 }
 
-#[derive(Debug)]
 struct QuickstartArgs {
     url: String,
     token: String,
@@ -379,6 +378,22 @@ struct QuickstartArgs {
     idempotency_retries: Option<u8>,
     admin_dir: Option<PathBuf>,
     help: bool,
+}
+
+impl std::fmt::Debug for QuickstartArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QuickstartArgs")
+            .field("url", &self.url)
+            .field("token", &"[REDACTED]")
+            .field("database_id", &self.database_id)
+            .field("branch_id", &self.branch_id)
+            .field("timeout_ms", &self.timeout_ms)
+            .field("safe_retries", &self.safe_retries)
+            .field("idempotency_retries", &self.idempotency_retries)
+            .field("admin_dir", &self.admin_dir)
+            .field("help", &self.help)
+            .finish()
+    }
 }
 
 impl QuickstartArgs {
