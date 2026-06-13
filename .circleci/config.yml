@@ -8,7 +8,7 @@ jobs:
       - checkout
       - restore_cache:
           keys:
-            - cargo-v1-{{ checksum "Cargo.lock" }}
+            - cargo-v1-{{ checksum "Cargo.toml" }}
             - cargo-v1-
       - run:
           name: Formatting
@@ -30,13 +30,13 @@ jobs:
       - run:
           name: Cargo deny
           command: |
-            cargo install cargo-deny --version 0.19.8
+            cargo install cargo-deny --version 0.19.8 --locked
             cargo deny check
       - run:
           name: Package dry run
-          command: cargo package
+          command: cargo package --locked
       - save_cache:
-          key: cargo-v1-{{ checksum "Cargo.lock" }}
+          key: cargo-v1-{{ checksum "Cargo.toml" }}
           paths:
             - ~/.cargo/registry
             - ~/.cargo/git

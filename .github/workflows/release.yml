@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
   checks: read
   statuses: read
 
@@ -23,10 +22,13 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Verify CircleCI readiness
         env:
           GITHUB_TOKEN: ${{ github.token }}
           REQUIRED_CIRCLECI_CHECK: "ci/circleci: circleci/tracedb-rust"
+          REQUIRED_CIRCLECI_CHECKS: "ci/circleci: circleci/tracedb-rust,ci"
+          CIRCLECI_READINESS_REQUIRE_FRESH: "true"
         run: bash .github/scripts/verify-circleci-readiness.sh
       - name: Verify tag matches package version
         run: |
