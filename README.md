@@ -7,6 +7,10 @@
 TraceDB Rust SDK for the standalone Rust SDK lane pinned to
 `platform-contract-v0`.
 
+Current checkpoint status: the source crate version for this release wave is
+`tracedb-sdk = "0.1.1"`. Public crates.io publication remains a signed
+release-tag step; package availability is Rust SDK evidence only.
+
 The crate provides:
 
 - Blocking `TraceDbClient` over HTTP/1.1 for local engine workflows.
@@ -53,4 +57,11 @@ still start the sibling `tracedb-server` process through Cargo so the SDK can
 exercise the real local HTTP product path without linking core crates. Those
 real-server tests skip when the sibling core checkout is not present.
 
-The crate is live on crates.io as `tracedb-sdk = "0.1.0"`.
+The source crate version for this release wave is `tracedb-sdk = "0.1.1"`.
+
+## Claim Boundary
+
+`tracedb-sdk = "0.1.1"` is Rust SDK packaging for the current TraceDB HTTP
+product surface. It does not claim managed-cloud
+readiness, hosted-alpha readiness, SQL compatibility, benchmark wins,
+production SLA, or Go SDK support.
