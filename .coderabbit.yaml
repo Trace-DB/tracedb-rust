@@ -1,0 +1,32 @@
+language: en-US
+tone_instructions: "Prioritize Rust API compatibility, crate packaging, generated SDK drift, and runtime safety."
+reviews:
+  profile: assertive
+  request_changes_workflow: true
+  auto_review:
+    enabled: true
+    base_branches:
+      - "main"
+      - "master"
+    drafts: false
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+  path_filters:
+    - "!target/**"
+  path_instructions:
+    - path: "src/**"
+      instructions: |
+        Check public API compatibility, async/blocking parity, generated SDK compatibility, retry/idempotency behavior, and error surfaces.
+    - path: "Cargo.toml"
+      instructions: |
+        Check crate metadata, versioning, feature flags, and release readiness.
+knowledge_base:
+  linear:
+    usage: "enabled"
+    team_keys:
+      - "TDB"
+chat:
+  integrations:
+    linear:
+      usage: "enabled"

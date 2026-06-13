@@ -7,6 +7,9 @@ on:
 
 permissions:
   contents: read
+  id-token: write
+  checks: read
+  statuses: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -18,6 +21,30 @@ jobs:
     environment: crates-io
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Verify CircleCI readiness
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUIRED_CIRCLECI_CHECK: circleci/tracedb-rust
+        run: bash .github/scripts/verify-circleci-readiness.sh
+      - name: Verify tag matches package version
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import sys
+          text = open("Cargo.toml", encoding="utf-8").read()
+          match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
+          if not match:
+              print("Could not find Cargo package version.", file=sys.stderr)
+              raise SystemExit(1)
+          expected = f"v{match.group(1)}"
+          tag = os.environ.get("GITHUB_REF_NAME", "")
+          if tag != expected:
+              print(f"Release tag {tag} does not match crate version {expected}.", file=sys.stderr)
+              raise SystemExit(1)
+          PY
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Verify package
