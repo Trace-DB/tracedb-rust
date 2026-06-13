@@ -26,7 +26,7 @@ jobs:
       - name: Verify CircleCI readiness
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          REQUIRED_CIRCLECI_CHECK: circleci/tracedb-rust
+          REQUIRED_CIRCLECI_CHECK: "ci/circleci: circleci/tracedb-rust"
         run: bash .github/scripts/verify-circleci-readiness.sh
       - name: Verify tag matches package version
         run: |

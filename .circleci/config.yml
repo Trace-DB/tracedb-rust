@@ -47,3 +47,6 @@ workflows:
     jobs:
       - tracedb-rust:
           name: circleci/tracedb-rust
+          filters:
+            tags:
+              only: /^v.*/
