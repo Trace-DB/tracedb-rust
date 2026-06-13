@@ -1,1 +1,14 @@
-# Specify files that shouldn't be modified by Fern
+# Files owned by TraceDB, not Fern.
+.fernignore
+.circleci/
+.github/workflows/ci.yml
+.github/workflows/release.yml
+.github/dependabot.yml
+.github/scripts/
+.coderabbit.yaml
+tracedb-protocol.lock
+MIGRATION.md
+CHANGELOG.md
+LICENSE
+SECURITY.md
+deny.toml
