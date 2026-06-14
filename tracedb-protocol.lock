@@ -1,0 +1,3 @@
+repo = "https://github.com/Trace-DB/tracedb-protocol"
+revision = "a50c7ada6fdd56a25128d186fd611472b78133f7"
+contract = "platform-contract-v0"
