@@ -5,7 +5,7 @@
 //! ## Getting Started
 //!
 //! ```rust
-//! use trace_db_api::prelude::*;
+//! use tracedb_sdk::prelude::*;
 //!
 //! #[tokio::main]
 //! async fn main() {
