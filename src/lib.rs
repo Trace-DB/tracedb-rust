@@ -51,6 +51,9 @@
     clippy::approx_constant,
     clippy::manual_range_contains
 )]
+// Fern generates doc comments containing Vec<T> / Vec<Option<bool>> which
+// rustdoc interprets as unclosed HTML tags.
+#![allow(rustdoc::invalid_html_tags)]
 
 pub mod api;
 pub mod client;
