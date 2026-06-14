@@ -37,6 +37,21 @@
 //! - [`error`] - Error types and handling
 //! - [`prelude`] - Common imports for convenience
 
+// Generated client code from Fern triggers several clippy lints that are safe
+// to allow for a generated SDK crate. These are reviewed upstream with Fern.
+#![allow(
+    unused_imports,
+    dead_code,
+    clippy::derivable_impls,
+    clippy::field_reassign_with_default,
+    clippy::redundant_closure,
+    clippy::type_complexity,
+    clippy::while_let_on_iterator,
+    clippy::needless_return,
+    clippy::approx_constant,
+    clippy::manual_range_contains
+)]
+
 pub mod api;
 pub mod client;
 pub mod config;
