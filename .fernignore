@@ -1,0 +1,17 @@
+# TraceDB-owned repository management files. Fern should update generated SDK
+# code, but CircleCI/release/review/legal/project files stay repo-owned.
+.circleci/config.yml
+.coderabbit.yaml
+.github/dependabot.yml
+.github/scripts/verify-circleci-readiness.sh
+.github/workflows/ci.yml
+.github/workflows/release.yml
+CHANGELOG.md
+LICENSE
+MIGRATION.md
+ROADMAP.md
+SECURITY.md
+deny.toml
+examples/**
+tests/**
+tracedb-protocol.lock
