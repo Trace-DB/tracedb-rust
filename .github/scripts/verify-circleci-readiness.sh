@@ -56,6 +56,13 @@ def parse_time(value):
     if not value:
         return None
     try:
+        if str(value).isdigit():
+            return datetime.fromtimestamp(int(value), tz=timezone.utc)
+    except (ValueError, OSError):
+        pass
+    if not value:
+        return None
+    try:
         if isinstance(value, int) or (isinstance(value, str) and value.isdigit()):
             return datetime.fromtimestamp(int(value), tz=timezone.utc)
     except (ValueError, OSError):
