@@ -55,6 +55,13 @@ fresh_grace_seconds = int(os.environ.get("CIRCLECI_READINESS_FRESH_GRACE_SECONDS
 def parse_time(value):
     if not value:
         return None
+    try:
+        if isinstance(value, int) or (isinstance(value, str) and value.isdigit()):
+            return datetime.fromtimestamp(int(value), tz=timezone.utc)
+    except (ValueError, OSError):
+        pass
+    if not value:
+        return None
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
